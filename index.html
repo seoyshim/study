@@ -85,7 +85,7 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v0.2</span></header>
+<header><span id="ttl"></span><span class="ver">v0.3</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -202,7 +202,7 @@ function renderAll(){renderHome();if(tab===1)renderNotes();if(tab===2)startQuiz(
 function renderHome(){
 var h='';
 if(impMsg)h+='<div class="note" style="margin:6px 0 8px;color:var(--acc)">'+esc(impMsg)+'</div>';
-if(!D.lectures.length){h+='<div class="pn" style="margin-top:12px"><b style="font-weight:500">자료가 아직 없어요</b><div class="note" style="margin:4px 0 10px">Claude에서 받은 자료 파일(.json)을 불러오면 정리본, 문제, 카드가 채워져요.</div><button class="btn pri full" id="imp">'+ic('upload',16)+' 자료 불러오기</button></div>';$('p0').innerHTML=h;return}
+if(!D.lectures.length){h+='<div class="pn" style="margin:12px 0 4px"><b style="font-weight:500">자료가 아직 없어요</b><div class="note" style="margin:4px 0 10px">Claude에서 받은 자료 파일(.json)을 불러오면 정리본, 문제, 카드가 채워져요.</div><button class="btn pri full" id="imp">'+ic('upload',16)+' 자료 불러오기</button></div>'}
 var s=curSub(),a=asgOf(s);
 h+='<div class="chips">'+subs().map(function(x,i){return '<button class="chip'+(i===st.cur?' on':'')+'" data-s="'+i+'">'+esc(x)+'</button>'}).join('')+'</div>';
 h+='<div style="display:flex;gap:6px;margin:8px 0 0"><input id="sn" type="text" placeholder="새 과목 이름" style="flex:1"><button class="btn" id="sa">과목 추가</button></div><div class="err" id="se"></div>';
