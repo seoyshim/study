@@ -85,7 +85,7 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v0.3</span></header>
+<header><span id="ttl"></span><span class="ver">v0.4</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -157,14 +157,14 @@ return Promise.resolve();
 }
 function boot(){
 idbGet('pack').then(function(p){if(p)D=norm(p)}).catch(function(){}).then(function(){
-renderHome();show(0);
+migrate();renderHome();show(0);
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(function(){});
-if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(function(){});
+if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){});
 });
 }
 
 var KEY='studyapp.v1';
-var st={ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{}};
+var st={ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all'};
 try{var raw=localStorage.getItem(KEY);if(raw){var o=JSON.parse(raw);for(var k in o)st[k]=o[k]}}catch(e){}
 var dbDoc=null,saveT=null;
 function save(){
@@ -179,6 +179,19 @@ function curSub(){var a=subs();if(st.cur>=a.length)st.cur=0;return a[st.cur]||''
 function lecsOf(s){return D.lectures.filter(function(l){return l.subject===s})}
 function lecById(id){return D.lectures.filter(function(l){return l.id===id})[0]}
 function asgOf(s){if(!st.asg[s])st.asg[s]={w:{},e:{}};return st.asg[s]}
+function migrate(){
+st.lw=st.lw||{};st.names=st.names||{};st.qlec=st.qlec||{};
+for(var s in (st.asg||{})){var w=st.asg[s].w||{};for(var k in w){if(!st.lw[w[k]])st.lw[w[k]]=+k}st.asg[s].w={}}
+}
+function lname(l){var n=st.names[l.id];return (n&&n.t)||l.title}
+function lprof(l){var n=st.names[l.id];return n&&n.p!==undefined?n.p:(l.prof||'')}
+function ldisp(l){var p=lprof(l);return lname(l)+(p?' · '+p:'')}
+function wkOf(l){return st.lw[l.id]||0}
+function qLec(q){return st.qlec[q.id]!==undefined?st.qlec[q.id]:q.lec}
+function qWeek(q){var l=lecById(qLec(q));return l?wkOf(l):-1}
+function lsort(a,b){var x=wkOf(a)||99,y=wkOf(b)||99;return x-y||lname(a).localeCompare(lname(b),'ko')}
+function wlabel(w){return w?w+'주차':'주차 미지정'}
+
 
 var tab=0,slot=null,hint=false,pend=null,allOpen=false,openMn={},curLecId=null;
 var NAMES=['과목','정리본','복습','카드'];
@@ -199,21 +212,24 @@ $('main').scrollTop=0;
 }
 function renderAll(){renderHome();if(tab===1)renderNotes();if(tab===2)startQuiz(false);if(tab===3)renderCards();show(tab)}
 
+var ren=null;
 function renderHome(){
 var h='';
 if(impMsg)h+='<div class="note" style="margin:6px 0 8px;color:var(--acc)">'+esc(impMsg)+'</div>';
 if(!D.lectures.length){h+='<div class="pn" style="margin:12px 0 4px"><b style="font-weight:500">자료가 아직 없어요</b><div class="note" style="margin:4px 0 10px">Claude에서 받은 자료 파일(.json)을 불러오면 정리본, 문제, 카드가 채워져요.</div><button class="btn pri full" id="imp">'+ic('upload',16)+' 자료 불러오기</button></div>'}
-var s=curSub(),a=asgOf(s);
+var s=curSub(),lecs=lecsOf(s).sort(lsort),a=asgOf(s),ws={};
+lecs.forEach(function(l){if(wkOf(l))ws[wkOf(l)]=1});
 h+='<div class="chips">'+subs().map(function(x,i){return '<button class="chip'+(i===st.cur?' on':'')+'" data-s="'+i+'">'+esc(x)+'</button>'}).join('')+'</div>';
 h+='<div style="display:flex;gap:6px;margin:8px 0 0"><input id="sn" type="text" placeholder="새 과목 이름" style="flex:1"><button class="btn" id="sa">과목 추가</button></div><div class="err" id="se"></div>';
-var lecs=lecsOf(s);
-var wc=Object.keys(a.w).length,ec=Object.keys(a.e).length;
-h+='<div class="met"><div><small>강의록 연결</small><b>'+wc+' / 15</b></div><div><small>족보 연결</small><b>'+ec+' / 13</b></div></div>';
+h+='<div class="met"><div><small>강의록 주차</small><b>'+Object.keys(ws).length+' / 15</b></div><div><small>족보 연결</small><b>'+Object.keys(a.e).length+' / 13</b></div></div>';
 h+='<div class="lbl">정리된 강의</div>';
 if(!lecs.length)h+='<div class="note">아직 정리된 강의가 없어요.</div>';
 lecs.forEach(function(l){
-var wk=Object.keys(a.w).filter(function(k){return a.w[k]===l.id})[0];
-h+='<div class="row"><span style="min-width:0">'+esc(l.title)+(wk?' <span class="src">'+wk+'주차</span>':'')+'</span><button class="btn pri" data-open="'+l.id+'">정리본 열기</button></div>';
+if(ren===l.id){
+h+='<div class="pn" style="margin:6px 0"><div class="note" style="margin:0 0 4px">이름</div><input id="rn" type="text" value="'+esc(lname(l))+'" style="width:100%;margin:0 0 6px"><div class="note" style="margin:0 0 4px">교수님</div><input id="rp" type="text" value="'+esc(lprof(l))+'" placeholder="예: 홍길동" style="width:100%"><div class="err" id="re"></div><div style="display:flex;gap:6px"><button class="btn pri" data-rsave="'+l.id+'">저장</button><button class="btn" data-rcancel="1">취소</button></div></div>';
+return;
+}
+h+='<div class="row"><span style="min-width:0">'+esc(lname(l))+(lprof(l)?' <span class="src">'+esc(lprof(l))+'</span>':'')+' <span class="src">'+wlabel(wkOf(l))+'</span></span><span style="display:flex;gap:6px"><button class="btn" data-ren="'+l.id+'" aria-label="이름 변경">'+ic('pen',15)+'</button><button class="btn pri" data-open="'+l.id+'">정리본</button></span></div>';
 });
 h+='<div class="lbl">강의록 · 주차별</div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">';
 for(var i=1;i<=15;i++)h+=cell('w',i,i+'주');
@@ -234,22 +250,21 @@ if(id==='17-이전')return '17학번 이전 족보';
 var p=String(id).split('-');return p[0]+'학번 '+p[1]+' 족보';
 }
 function cell(k,id,label){
-var a=asgOf(curSub())[k],on=slot&&slot.k===k&&String(slot.id)===String(id),d=!!a[id];
+var on=slot&&slot.k===k&&String(slot.id)===String(id),d=false;
+if(k==='w')d=lecsOf(curSub()).some(function(l){return wkOf(l)===+id});
+else d=!!asgOf(curSub()).e[id];
 return '<button class="cell'+(d?' d':'')+(on?' on':'')+'" data-k="'+k+'" data-id="'+id+'" aria-label="'+titleOf(k,id)+(d?', 연결됨':', 비어 있음')+'">'+(label?'<span>'+label+'</span>':'')+'<span>'+ic(d?'check':'plus',16)+'</span></button>';
 }
 function panel(){
-var s=curSub(),a=asgOf(s)[slot.k],cur=a[slot.id],h='<div class="pn"><div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 6px"><b style="font-weight:500">'+titleOf(slot.k,slot.id)+'</b><button class="mi" id="pc" aria-label="닫기" style="color:var(--tx2)">'+ic('x',18)+'</button></div>';
-if(cur){
-var l=lecById(cur);
-h+='<div class="row" style="border-top:none"><span>'+esc(l?l.title:cur)+'</span><span style="display:flex;gap:6px"><button class="btn pri" data-open="'+cur+'">정리본</button><button class="btn" id="pu">연결 해제</button></span></div>';
+var s=curSub(),h='<div class="pn"><div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 6px"><b style="font-weight:500">'+titleOf(slot.k,slot.id)+'</b><button class="mi" id="pc" aria-label="닫기" style="color:var(--tx2)">'+ic('x',18)+'</button></div>';
+if(slot.k==='w'){
+var here=lecsOf(s).filter(function(l){return wkOf(l)===slot.id}).sort(lsort),others=lecsOf(s).filter(function(l){return wkOf(l)!==slot.id}).sort(lsort);
+if(!here.length)h+='<div class="note" style="margin:0 0 6px">이 주차에 연결된 강의가 없어요.</div>';
+here.forEach(function(l){h+='<div class="row" style="border-top:none;padding:6px 0"><span style="min-width:0">'+esc(ldisp(l))+'</span><span style="display:flex;gap:6px"><button class="btn pri" data-open="'+l.id+'">정리본</button><button class="btn" data-unlink="'+l.id+'">해제</button></span></div>'});
+if(others.length)h+='<div class="note" style="margin:8px 0 4px">이 주차에 연결하기</div>';
+others.forEach(function(l){h+='<button class="btn full" style="margin:0 0 6px;text-align:left" data-link="'+l.id+'">'+esc(ldisp(l))+' <span class="src">'+wlabel(wkOf(l))+'</span></button>'});
 }else{
-var used={};var aa=asgOf(s);[aa.w,aa.e].forEach(function(m){for(var k in m)used[m[k]]=1});
-var free=lecsOf(s).filter(function(l){return !used[l.id]});
-if(slot.k==='w'&&free.length){
-h+='<div class="note" style="margin:0 0 6px">정리된 강의를 이 주차에 연결해요.</div>';
-free.forEach(function(l){h+='<button class="btn full" style="margin:0 0 6px" data-link="'+l.id+'">'+esc(l.title)+' 연결</button>'});
-}else if(slot.k==='w'){h+='<div class="note">연결할 정리된 강의가 없어요.</div>'}
-else h+='<div class="note">정리된 족보가 아직 없어요.</div>';
+h+='<div class="note">정리된 족보가 아직 없어요. 족보를 처리하면 문제가 강의 범위에 맞춰 주차별로 들어가고, 범위 밖 문제는 따로 모여요.</div>';
 }
 h+='<button class="btn full" id="ph" style="margin-top:8px">'+ic('upload',16)+' 새 파일 올리기</button>';
 if(hint)h+='<div class="note" style="margin-top:8px">이 버전에는 앱 안에서 PDF를 처리하는 기능이 아직 없어요. 채팅에서 파일을 보내주시면 정리본, 문제, 카드를 만들어 이 앱에 넣어드려요.</div>';
@@ -258,17 +273,16 @@ return h+'</div>';
 $('p0').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
 if(t.id==='imp'){$('fi').click();return}
-if(t.dataset.s!==undefined){st.cur=+t.dataset.s;slot=null;hint=false;save();renderHome();$('ttl').textContent='과목';return}
-if(t.id==='sa'){
-var v=$('sn').value.trim();
-if(!v){$('se').textContent='과목 이름을 입력하세요';return}
-st.extra=(st.extra||[]).concat([v]);st.cur=subs().length-1;slot=null;save();renderHome();return;
-}
+if(t.dataset.s!==undefined){st.cur=+t.dataset.s;slot=null;hint=false;ren=null;save();renderHome();$('ttl').textContent='과목';return}
+if(t.id==='sa'){var v=$('sn').value.trim();if(!v){$('se').textContent='과목 이름을 입력하세요';return}st.extra=(st.extra||[]).concat([v]);st.cur=subs().length-1;slot=null;save();renderHome();return}
 if(t.dataset.k){var id=t.dataset.k==='w'?+t.dataset.id:t.dataset.id;slot=(slot&&slot.k===t.dataset.k&&String(slot.id)===String(id))?null:{k:t.dataset.k,id:id};hint=false;renderHome();return}
 if(t.id==='pc'){slot=null;renderHome();return}
 if(t.id==='ph'){hint=true;renderHome();return}
-if(t.dataset.link){asgOf(curSub())[slot.k][slot.id]=t.dataset.link;save();renderHome();return}
-if(t.id==='pu'){delete asgOf(curSub())[slot.k][slot.id];save();renderHome();return}
+if(t.dataset.link){st.lw[t.dataset.link]=slot.id;save();renderHome();return}
+if(t.dataset.unlink){delete st.lw[t.dataset.unlink];save();renderHome();return}
+if(t.dataset.ren){ren=t.dataset.ren;renderHome();return}
+if(t.dataset.rcancel){ren=null;renderHome();return}
+if(t.dataset.rsave){var nm=$('rn').value.trim();if(!nm){$('re').textContent='이름을 입력하세요';return}st.names[t.dataset.rsave]={t:nm,p:$('rp').value.trim()};ren=null;save();renderHome();return}
 if(t.dataset.open){st.lec[curSub()]=t.dataset.open;save();show(1);return}
 });
 $('p0').addEventListener('input',function(e){if(e.target.id==='sn')$('se').textContent=''});
@@ -314,15 +328,23 @@ el.querySelector('.txt').innerHTML=sentHTML(sid,it.t);
 el.querySelector('.memos').innerHTML=memosHTML(sid);
 counts();showAll();
 }
+function lecOptions(lecs,want){
+var g={};
+lecs.forEach(function(l){var w=wkOf(l);(g[w]||(g[w]=[])).push(l)});
+return Object.keys(g).map(Number).sort(function(a,b){return (a||99)-(b||99)}).map(function(w){return '<optgroup label="'+wlabel(w)+'">'+g[w].map(function(l){return '<option value="'+l.id+'"'+(l.id===want?' selected':'')+'>'+esc(ldisp(l))+'</option>'}).join('')+'</optgroup>'}).join('');
+}
 function renderNotes(){
-var s=curSub(),lecs=lecsOf(s),h='';
+var s=curSub(),lecs=lecsOf(s).sort(lsort),h='';
 if(!lecs.length){$('p1').innerHTML='<div class="note" style="margin-top:12px">이 과목에는 아직 정리된 강의가 없어요. 과목 탭에서 파일 올리는 방법을 확인해보세요.</div>';return}
 var want=st.lec[s];
 if(!lecById(want)||lecById(want).subject!==s)want=lecs[0].id;
 curLecId=want;st.lec[s]=want;
-h+='<div style="display:flex;gap:6px;align-items:center;margin:4px 0 6px"><select id="ls" style="flex:1">'+lecs.map(function(l){return '<option value="'+l.id+'"'+(l.id===want?' selected':'')+'>'+esc(l.title)+'</option>'}).join('')+'</select><button class="btn" id="ma" style="display:none"></button></div>';
+var lec=lecById(want),wk=wkOf(lec);
+h+='<div style="display:flex;gap:6px;align-items:center;margin:4px 0 6px"><select id="ls" style="flex:1">'+lecOptions(lecs,want)+'</select><button class="btn" id="ma" style="display:none"></button></div>';
+h+='<div style="display:flex;gap:8px;align-items:center;margin:0 0 6px"><span class="note">주차</span><select id="ws"><option value="0">미지정</option>';
+for(var i=1;i<=15;i++)h+='<option value="'+i+'"'+(i===wk?' selected':'')+'>'+i+'주차</option>';
+h+='</select></div>';
 h+='<div id="nb"><div id="tb"></div>';
-var lec=lecById(want);
 lec.sections.forEach(function(sec){
 h+='<h3>'+esc(sec.h)+'</h3>';
 sec.items.forEach(function(it){
@@ -458,6 +480,7 @@ setPend(sid,s2,e2);
 });
 $('p1').addEventListener('change',function(e){
 if(e.target.id==='ls'){st.lec[curSub()]=e.target.value;save();pend=null;renderNotes()}
+if(e.target.id==='ws'){var n=+e.target.value;if(n)st.lw[curLecId]=n;else delete st.lw[curLecId];save();pend=null;renderNotes()}
 });
 $('p1').addEventListener('click',function(e){
 var b=e.target.closest('#ma');
@@ -466,10 +489,27 @@ if(b){allOpen=!allOpen;document.querySelectorAll('#nb .mn').forEach(function(n){
 
 var QS=[],qi=0,answered=false,ignoreDue=false,requeued={};
 function qsOf(s){return D.questions.filter(function(q){return q.subject===s})}
+function scopeOf(){return st.qscope||'all'}
+function inScope(q,sc){
+if(sc==='all')return true;
+var w=qWeek(q);
+if(sc==='out')return w===-1;
+return w===+sc.slice(2);
+}
+function scopeList(){
+var list=qsOf(curSub()),ws={},out=0;
+list.forEach(function(q){var w=qWeek(q);if(w===-1)out++;else ws[w]=(ws[w]||0)+1});
+var o=[{k:'all',label:'전체',n:list.length}];
+Object.keys(ws).map(Number).sort(function(a,b){return (a||99)-(b||99)}).forEach(function(w){o.push({k:'w:'+w,label:wlabel(w),n:ws[w]})});
+if(out)o.push({k:'out',label:'범위 밖',n:out});
+return o;
+}
 function startQuiz(all){
 ignoreDue=!!all;requeued={};qi=0;
-var now=Date.now(),list=qsOf(curSub());
-QS=list.filter(function(q){var r=st.srs[q.id];return ignoreDue||!r||r.due<=now});
+var sc=scopeOf();
+if(!scopeList().some(function(o){return o.k===sc})){sc='all';st.qscope='all'}
+var now=Date.now();
+QS=qsOf(curSub()).filter(function(q){return inScope(q,sc)}).filter(function(q){var r=st.srs[q.id];return ignoreDue||!r||r.due<=now});
 drawQuiz();
 }
 function fmt(ms){
@@ -479,24 +519,35 @@ var h=Math.round(m/60);if(h<24)return h+'시간 후';
 return Math.round(h/24)+'일 후';
 }
 function drawQuiz(){
-var el=$('p2'),list=qsOf(curSub());
-if(!list.length){el.innerHTML='<div class="note" style="margin-top:12px">이 과목에는 아직 문제가 없어요.</div>';return}
+var el=$('p2'),all=qsOf(curSub());
+if(!all.length){el.innerHTML='<div class="note" style="margin-top:12px">이 과목에는 아직 문제가 없어요.</div>';return}
+var sc=scopeOf(),list=all.filter(function(q){return inScope(q,sc)});
+var head='<div style="margin:4px 0 8px"><select id="qsc" style="width:100%">'+scopeList().map(function(o){return '<option value="'+o.k+'"'+(o.k===sc?' selected':'')+'>'+o.label+' ('+o.n+'문제)</option>'}).join('')+'</select></div>';
 if(qi>=QS.length){
 var now=Date.now(),next=null;
 list.forEach(function(q){var r=st.srs[q.id];if(r&&r.due>now&&(next===null||r.due<next))next=r.due});
 var h='<div style="font-size:16px;font-weight:500;margin:8px 0 4px">오늘 복습 끝</div><div class="note" style="margin:0 0 12px">'+(next?'다음 복습은 '+fmt(next-now)+'이에요.':'복습할 문제가 없어요.')+'</div>';
 list.forEach(function(q,i){var r=st.srs[q.id];h+='<div class="row" style="font-size:13px"><span style="min-width:0">'+(i+1)+'. '+esc(q.q.slice(0,22))+'…</span><span style="color:var(--acc);white-space:nowrap">'+(r?(r.due>now?fmt(r.due-now):'지금'):'아직')+'</span></div>'});
-h+='<button class="btn full" id="qa" style="margin-top:14px">전체 다시 풀기</button>';
-el.innerHTML=h;
+if(list.length)h+='<button class="btn full" id="qa" style="margin-top:14px">전체 다시 풀기</button>';
+el.innerHTML=head+h;
 return;
 }
-var q=QS[qi],lec=lecById(q.lec);
-var h='<div class="note" style="margin:4px 0 6px">남은 카드 '+(QS.length-qi)+(lec?' · '+esc(lec.title):'')+'</div><div class="bar"><i style="width:'+Math.round(qi/QS.length*100)+'%"></i></div>';
+var q=QS[qi],lec=lecById(qLec(q));
+var tag=q.exam?' · '+titleOf('e',q.exam):'';
+var h='<div class="note" style="margin:4px 0 6px">남은 카드 '+(QS.length-qi)+' · '+(lec?esc(lname(lec)):'범위 밖')+tag+'</div><div class="bar"><i style="width:'+Math.round(qi/QS.length*100)+'%"></i></div>';
 h+='<div style="font-size:16px;line-height:1.6;margin:0 0 12px">'+esc(q.q)+'</div>';
 q.o.forEach(function(o,k){h+='<button class="opt" data-k="'+k+'">'+esc(o)+'</button>'});
 h+='<div id="fb"></div>';
-el.innerHTML=h;answered=false;
+el.innerHTML=head+h;answered=false;
 }
+$('p2').addEventListener('change',function(e){
+if(e.target.id==='qsc'){st.qscope=e.target.value;save();startQuiz(false);return}
+if(e.target.id==='mv'){
+var q=QS[qi];if(!q||!e.target.value)return;
+st.qlec[q.id]=e.target.value==='-'?'':e.target.value;save();
+var m=$('mvm');if(m)m.textContent='옮겼어요. 다음 복습부터 새 범위로 나와요.';
+}
+});
 $('p2').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
 if(t.id==='qa'){startQuiz(true);return}
@@ -505,7 +556,8 @@ answered=true;
 var q=QS[qi],k=+t.dataset.k;
 document.querySelectorAll('#p2 .opt').forEach(function(b){var n=+b.dataset.k;if(n===q.a)b.classList.add('ok');else if(n===k)b.classList.add('no')});
 var r=st.srs[q.id]||{ivl:0,due:0},sure=(r.ivl?Math.round(r.ivl*2.5):4)+'일 후';
-$('fb').innerHTML='<div class="note" style="background:var(--s1);border-radius:8px;padding:10px 12px;margin:4px 0 12px;color:var(--tx)">'+(k===q.a?'정답. ':'오답. ')+esc(q.e)+'</div><div class="note" style="margin:0 0 6px">얼마나 확실했나요?</div><div style="display:flex;gap:6px"><button class="rate" data-r="sure">확실<br><span class="note">'+sure+'</span></button><button class="rate" data-r="meh">애매<br><span class="note">1일 후</span></button><button class="rate" data-r="no">불확실<br><span class="note">10분 후</span></button></div>';
+var cur=qLec(q),opts='<option value="">범위 바꾸기…</option>'+lecsOf(curSub()).sort(lsort).map(function(l){return '<option value="'+l.id+'"'+(l.id===cur?' disabled':'')+'>'+wlabel(wkOf(l))+' · '+esc(lname(l))+'</option>'}).join('')+'<option value="-"'+(cur?'':' disabled')+'>범위 밖</option>';
+$('fb').innerHTML='<div class="note" style="background:var(--s1);border-radius:8px;padding:10px 12px;margin:4px 0 10px;color:var(--tx)">'+(k===q.a?'정답. ':'오답. ')+esc(q.e)+'</div><div style="display:flex;gap:8px;align-items:center;margin:0 0 10px"><select id="mv" style="flex:1">'+opts+'</select></div><div class="note" id="mvm" style="margin:-4px 0 8px;color:var(--ok)"></div><div class="note" style="margin:0 0 6px">얼마나 확실했나요?</div><div style="display:flex;gap:6px"><button class="rate" data-r="sure">확실<br><span class="note">'+sure+'</span></button><button class="rate" data-r="meh">애매<br><span class="note">1일 후</span></button><button class="rate" data-r="no">불확실<br><span class="note">10분 후</span></button></div>';
 return;
 }
 if(t.classList.contains('rate')){
