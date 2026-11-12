@@ -89,7 +89,7 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v0.6</span></header>
+<header><span id="ttl"></span><span class="ver">v0.7</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -246,12 +246,13 @@ h+='<div class="yl">17학번 이전</div><div style="grid-column:span 2;display:
 h+='<div class="yl" style="margin-top:6px">기타</div><div style="grid-column:span 2;display:grid;margin-top:6px">'+cell('e','기타','')+'</div></div>';
 if(slot&&slot.k==='e')h+=panel();
 h+='<div class="lbl">자료</div><button class="btn full" id="imp">'+ic('upload',16)+' 자료 불러오기</button><div class="note" style="margin-top:6px">같은 강의를 다시 불러오면 새 내용으로 바뀌고, 하이라이트와 메모는 그대로 남아요.</div>';
-var ak=localStorage.getItem('studyapp.aikey')||'',am=localStorage.getItem('studyapp.aimodel')||'claude-haiku-5-5';
-h+='<div class="lbl">AI 연결</div>';
-if(!ak){h+='<div style="display:flex;gap:6px"><input id="ak" type="password" placeholder="API 키 붙여넣기" autocomplete="off" style="flex:1"><button class="btn" id="aks">저장</button></div><div class="err" id="ake"></div>'}
+var pv=aiProv(),ak=localStorage.getItem(pv==='openai'?'studyapp.oakey':'studyapp.aikey')||'',am=localStorage.getItem(pv==='openai'?'studyapp.oamodel':'studyapp.aimodel')||(pv==='openai'?'gpt-5-mini':'claude-haiku-5-5');
+h+='<div class="lbl">AI 연결</div><div class="chips" style="margin:0 0 8px"><button class="chip'+(pv==='claude'?' on':'')+'" data-pv="claude">Claude</button><button class="chip'+(pv==='openai'?' on':'')+'" data-pv="openai">GPT</button></div>';
+if(!ak){h+='<div style="display:flex;gap:6px"><input id="ak" type="password" placeholder="'+(pv==='openai'?'OpenAI API 키 붙여넣기':'Claude API 키 붙여넣기')+'" autocomplete="off" style="flex:1"><button class="btn" id="aks">저장</button></div><div class="err" id="ake"></div>'}
 else{h+='<div class="row" style="border-top:none;padding-top:0"><span>연결됨 · 키 끝 '+esc(ak.slice(-4))+'</span><span style="display:flex;gap:6px"><button class="btn" id="akt">연결 시험</button><button class="btn" id="akd">키 삭제</button></span></div><div class="note" style="margin:2px 0 4px">모델</div><input id="am" type="text" value="'+esc(am)+'" style="width:100%">'}
+if(pv==='openai')h+='<div class="note" style="margin:8px 0 4px">중계 주소 (선택)</div><input id="ab" type="text" value="'+esc(localStorage.getItem('studyapp.oabase')||'')+'" placeholder="비워두면 OpenAI로 바로 연결해요" style="width:100%">';
 if(akMsg)h+='<div class="note" style="margin-top:6px;color:var(--acc)">'+esc(akMsg)+'</div>';
-h+='<div class="note" style="margin-top:8px">키는 이 폰에만 저장돼요. 용어를 AI에게 물을 때 고른 말과 그 문장이 Anthropic으로 전송되고, 쓴 만큼 요금이 나가요. 이 앱 전용 키를 따로 만들어 쓰는 걸 권해요.</div>';
+h+='<div class="note" style="margin-top:8px">키는 이 폰에만 저장돼요. 용어를 AI에게 물을 때 고른 말과 그 문장이 '+(pv==='openai'?'OpenAI':'Anthropic')+'로 전송되고, 쓴 만큼 요금이 나가요.</div>';
 $('p0').innerHTML=h;
 }
 function titleOf(k,id){
@@ -283,8 +284,15 @@ return h+'</div>';
 }
 $('p0').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
-if(t.id==='aks'){var kv=$('ak').value.trim();if(!/^sk-ant-/.test(kv)){$('ake').textContent='Anthropic API 키(sk-ant-로 시작)를 붙여넣으세요';return}try{localStorage.setItem('studyapp.aikey',kv)}catch(er){$('ake').textContent='이 기기에 저장하지 못했어요';return}akMsg='저장했어요. 연결 시험을 눌러 확인해보세요.';renderHome();return}
-if(t.id==='akd'){localStorage.removeItem('studyapp.aikey');akMsg='키를 삭제했어요.';renderHome();return}
+if(t.dataset.pv){localStorage.setItem('studyapp.aiprov',t.dataset.pv);akMsg='';renderHome();return}
+if(t.id==='aks'){
+var kv=$('ak').value.trim(),pvv=aiProv();
+if(pvv==='claude'&&!/^sk-ant-/.test(kv)){$('ake').textContent=/^sk-/.test(kv)?'이건 Claude 키가 아니에요. 위에서 GPT를 선택해주세요.':'Claude API 키(sk-ant-로 시작)를 붙여넣으세요';return}
+if(pvv==='openai'&&(!/^sk-/.test(kv)||/^sk-ant-/.test(kv))){$('ake').textContent=/^sk-ant-/.test(kv)?'이건 Claude 키예요. 위에서 Claude를 선택해주세요.':'OpenAI API 키(sk-로 시작)를 붙여넣으세요';return}
+try{localStorage.setItem(pvv==='openai'?'studyapp.oakey':'studyapp.aikey',kv)}catch(er){$('ake').textContent='이 기기에 저장하지 못했어요';return}
+akMsg='저장했어요. 연결 시험을 눌러 확인해보세요.';renderHome();return;
+}
+if(t.id==='akd'){localStorage.removeItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey');akMsg='키를 삭제했어요.';renderHome();return}
 if(t.id==='akt'){akMsg='시험 중…';renderHome();aiCall('짧게 답해.','한국어로 \u201c연결됨\u201d이라고만 답해.',20).then(function(){akMsg='연결됐어요.';renderHome()}).catch(function(er){akMsg=aiErr(er);renderHome()});return}
 if(t.id==='imp'){$('fi').click();return}
 if(t.dataset.s!==undefined){st.cur=+t.dataset.s;slot=null;hint=false;ren=null;save();renderHome();$('ttl').textContent='과목';return}
@@ -300,7 +308,11 @@ if(t.dataset.rsave){var nm=$('rn').value.trim();if(!nm){$('re').textContent='이
 if(t.dataset.open){st.lec[curSub()]=t.dataset.open;save();show(1);return}
 });
 $('p0').addEventListener('input',function(e){if(e.target.id==='sn')$('se').textContent=''});
-$('p0').addEventListener('change',function(e){if(e.target.id==='am'){var mv=e.target.value.trim();if(mv)localStorage.setItem('studyapp.aimodel',mv);else localStorage.removeItem('studyapp.aimodel')}});
+$('p0').addEventListener('change',function(e){
+var pvc=aiProv();
+if(e.target.id==='am'){var mk=pvc==='openai'?'studyapp.oamodel':'studyapp.aimodel',mv=e.target.value.trim();if(mv)localStorage.setItem(mk,mv);else localStorage.removeItem(mk)}
+if(e.target.id==='ab'){var bv=e.target.value.trim();if(bv)localStorage.setItem('studyapp.oabase',bv);else localStorage.removeItem('studyapp.oabase')}
+});
 
 function marksOf(sid){return st.marks[sid]||(st.marks[sid]=[])}
 function sentHTML(sid,txt){
@@ -432,7 +444,7 @@ return out;
 }
 function termKey(text){return gnorm(text.replace(/[^A-Za-z0-9\u03b1\u03b2\-' ]+/g,' '))||text.trim()}
 var aiBusy=false,akMsg='';
-function aiCall(sys,usr,max){
+function claudeCall(sys,usr,max){
 var key=localStorage.getItem('studyapp.aikey');
 if(!key)return Promise.reject({code:'nokey'});
 var model=localStorage.getItem('studyapp.aimodel')||'claude-haiku-5-5';
@@ -443,18 +455,41 @@ return (j.content||[]).filter(function(c){return c.type==='text'}).map(function(
 });
 });
 }
+function aiProv(){return localStorage.getItem('studyapp.aiprov')==='openai'?'openai':'claude'}
+function oaText(j){
+if(j&&j.output_text)return String(j.output_text).trim();
+var out=[];
+((j&&j.output)||[]).forEach(function(it){if(it.type==='message')(it.content||[]).forEach(function(c){if(c.type==='output_text'&&c.text)out.push(c.text)})});
+return out.join('\n').trim();
+}
+function oaCall(sys,usr,max){
+var key=localStorage.getItem('studyapp.oakey');
+if(!key)return Promise.reject({code:'nokey'});
+var model=localStorage.getItem('studyapp.oamodel')||'gpt-5-mini';
+var base=(localStorage.getItem('studyapp.oabase')||'https://api.openai.com/v1').replace(/\/+$/,'');
+var body={model:model,instructions:sys,input:usr,max_output_tokens:Math.max(max||450,1200),store:false};
+if(/^(gpt-5|o\d)/.test(model))body.reasoning={effort:'low'};
+return fetch(base+'/responses',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+key},body:JSON.stringify(body)}).then(function(r){
+return r.json().catch(function(){return {}}).then(function(j){
+if(!r.ok)throw {code:r.status,msg:(j&&j.error&&j.error.message)||''};
+return oaText(j);
+});
+});
+}
+function aiCall(sys,usr,max){return aiProv()==='openai'?oaCall(sys,usr,max):claudeCall(sys,usr,max)}
 var AISYS='너는 한국 의대생을 돕는 의학 용어 설명자야. 학생이 강의 정리본에서 고른 말(영어 용어나 짧은 구절)을 한국어로 설명해. 형식은 첫 줄에 "한글 이름: …", 다음 줄에 "뜻: …"을 1~2문장, 이어서 "핵심:" 아래에 "- "로 시작하는 짧은 줄 2~3개야. 문장 맥락이 주어지면 그 맥락에서의 의미를 우선해. 확실하지 않은 내용은 추측하지 말고 "확실하지 않아요"라고 써. 서론이나 맺음말 없이 간결하게 답해.';
 function askTerm(text,sentence,lecture){
 return aiCall(AISYS,'강의: '+lecture+'\n문장: '+sentence+'\n찾는 말: '+text,450);
 }
 function aiErr(er){
 if(er&&er.code==='nokey')return '과목 탭 맨 아래 \u201cAI 연결\u201d에서 API 키를 먼저 저장해주세요.';
+if(er&&er.msg&&/credit|balance|quota|billing/i.test(er.msg))return '크레딧이나 사용 한도가 부족한 것 같아요. 결제 설정과 잔액을 확인해주세요.';
 if(er&&er.code===401)return 'API 키가 맞지 않아요. 키를 다시 확인해주세요.';
 if(er&&er.code===403)return '이 키로는 사용할 수 없어요. 키 권한을 확인해주세요.';
-if(er&&er.code===404)return '모델 이름을 찾을 수 없어요. \u201cAI 연결\u201d에서 모델 이름을 확인해주세요.';
+if(er&&er.code===404)return '모델 이름이나 주소를 찾을 수 없어요. \u201cAI 연결\u201d에서 모델 이름과 중계 주소를 확인해주세요.';
 if(er&&er.code===429)return '요청이 너무 많아요. 잠시 후 다시 해보세요.';
-if(er&&er.msg&&/credit|balance/i.test(er.msg))return '크레딧이 부족한 것 같아요. 콘솔에서 잔액을 확인해주세요.';
 if(er&&er.code)return '요청에 실패했어요 ('+er.code+'). '+(er.msg||'');
+if(aiProv()==='openai')return 'OpenAI로 연결하지 못했어요. 브라우저에서 직접 연결하는 게 막혔을 수 있어요. 그렇다면 중계 주소가 필요해요.';
 return '연결하지 못했어요. 인터넷 연결을 확인해주세요.';
 }
 function aiBlock(text){
