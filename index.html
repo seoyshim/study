@@ -89,7 +89,7 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v0.7</span></header>
+<header><span id="ttl"></span><span class="ver">v0.8</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -99,6 +99,7 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 <nav id="nav"></nav>
 </div>
 <input type="file" id="fi" accept=".json,application/json" hidden>
+<input type="file" id="fb" accept=".txt,.json,text/plain,application/json" hidden>
 <script>
 (function(){
 'use strict';
@@ -246,6 +247,10 @@ h+='<div class="yl">17학번 이전</div><div style="grid-column:span 2;display:
 h+='<div class="yl" style="margin-top:6px">기타</div><div style="grid-column:span 2;display:grid;margin-top:6px">'+cell('e','기타','')+'</div></div>';
 if(slot&&slot.k==='e')h+=panel();
 h+='<div class="lbl">자료</div><button class="btn full" id="imp">'+ic('upload',16)+' 자료 불러오기</button><div class="note" style="margin-top:6px">같은 강의를 다시 불러오면 새 내용으로 바뀌고, 하이라이트와 메모는 그대로 남아요.</div>';
+h+='<div class="lbl">백업</div><div style="display:flex;gap:6px"><button class="btn" id="bk" style="flex:1">'+ic('download',16)+' 백업 내보내기</button><button class="btn" id="br" style="flex:1">'+ic('upload',16)+' 백업 불러오기</button></div>';
+if(bkMsg)h+='<div class="note" style="margin-top:6px;color:var(--acc)">'+esc(bkMsg)+'</div>';
+if(bkPend)h+='<div class="pn" style="margin-top:8px"><b style="font-weight:500">이 백업으로 바꿀까요?</b><div class="note" style="margin:4px 0 8px">'+esc(bkSummary(bkPend))+'<br>지금 앱에 있는 과목, 표시, 메모, 복습 기록은 이 백업 내용으로 바뀌어요.</div><div style="display:flex;gap:6px"><button class="btn pri" id="bry">바꾸기</button><button class="btn" id="brn">취소</button></div></div>';
+h+='<div class="note" style="margin-top:6px">과목, 하이라이트, 메모, 복습 기록, 용어를 파일로 저장해요. API 키와 불러온 자료는 들어가지 않아요.</div>';
 var pv=aiProv(),ak=localStorage.getItem(pv==='openai'?'studyapp.oakey':'studyapp.aikey')||'',am=localStorage.getItem(pv==='openai'?'studyapp.oamodel':'studyapp.aimodel')||(pv==='openai'?'gpt-5-mini':'claude-haiku-5-5');
 h+='<div class="lbl">AI 연결</div><div class="chips" style="margin:0 0 8px"><button class="chip'+(pv==='claude'?' on':'')+'" data-pv="claude">Claude</button><button class="chip'+(pv==='openai'?' on':'')+'" data-pv="openai">GPT</button></div>';
 if(!ak){h+='<div style="display:flex;gap:6px"><input id="ak" type="password" placeholder="'+(pv==='openai'?'OpenAI API 키 붙여넣기':'Claude API 키 붙여넣기')+'" autocomplete="off" style="flex:1"><button class="btn" id="aks">저장</button></div><div class="err" id="ake"></div>'}
@@ -284,6 +289,10 @@ return h+'</div>';
 }
 $('p0').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
+if(t.id==='bk'){exportBackup().then(function(){renderHome()});return}
+if(t.id==='br'){$('fb').click();return}
+if(t.id==='brn'){bkPend=null;renderHome();return}
+if(t.id==='bry'){st=Object.assign(freshState(),bkPend);migrate();save();bkPend=null;bkMsg='백업으로 바꿨어요. ('+bkSummary(st)+')';renderHome();return}
 if(t.dataset.pv){localStorage.setItem('studyapp.aiprov',t.dataset.pv);akMsg='';renderHome();return}
 if(t.id==='aks'){
 var kv=$('ak').value.trim(),pvv=aiProv();
@@ -805,6 +814,40 @@ else $('cm').textContent=copyTxt;
 $('p3').addEventListener('input',function(e){if(e.target.classList.contains('pa')){var m=$('pe-'+e.target.dataset.id);if(m)m.textContent=''}});
 $('nav').addEventListener('click',function(e){var b=e.target.closest('button');if(b)show(+b.dataset.t)});
 
+var bkMsg='',bkPend=null;
+function freshState(){return {ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[]}}
+function bkSummary(s){
+var m=0,mm=0;
+for(var k in (s.marks||{})){(s.marks[k]||[]).forEach(function(x){if(x[2]==='mm')mm++;else m++})}
+return '과목 '+((s.extra||[]).length)+'개 · 표시 '+m+'개 · 메모 '+mm+'개 · 복습 기록 '+Object.keys(s.srs||{}).length+'개';
+}
+function exportBackup(){
+var json=JSON.stringify({app:'studyapp',v:1,at:Date.now(),st:st});
+var f=new File([json],'study_backup_'+new Date().toISOString().slice(0,10)+'.txt',{type:'text/plain'});
+if(navigator.canShare&&navigator.canShare({files:[f]})){
+return navigator.share({files:[f],title:'공부 앱 백업'}).then(function(){bkMsg='백업을 내보냈어요. ('+bkSummary(st)+')'}).catch(function(er){if(er&&er.name==='AbortError'){bkMsg='';return}bkMsg='내보내지 못했어요. 다시 시도해주세요.'});
+}
+try{
+var u=URL.createObjectURL(f),a=document.createElement('a');
+a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();
+setTimeout(function(){URL.revokeObjectURL(u)},4000);
+bkMsg='백업 파일을 내려받았어요. ('+bkSummary(st)+')';
+}catch(e){bkMsg='내보내지 못했어요.'}
+return Promise.resolve();
+}
+$('fb').addEventListener('change',function(e){
+var f=e.target.files&&e.target.files[0];
+if(!f)return;
+var r=new FileReader();
+r.onload=function(){
+try{var o=JSON.parse(r.result);if(!o||o.app!=='studyapp'||!o.st||typeof o.st!=='object')throw new Error('bad');bkPend=o.st;bkMsg=''}
+catch(err){bkPend=null;bkMsg='백업 파일을 읽지 못했어요. 이 앱에서 내보낸 파일인지 확인해주세요.'}
+renderHome();
+};
+r.onerror=function(){bkMsg='파일을 열지 못했어요.';renderHome()};
+r.readAsText(f);
+e.target.value='';
+});
 boot();
 })();
 </script>
