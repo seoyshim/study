@@ -94,7 +94,7 @@ textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v1.7</span></header>
+<header><span id="ttl"></span><span class="ver">v1.9</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -218,7 +218,7 @@ try{store.get(id,function(o){if(!done){done=true;clearTimeout(t);res(o)}})}catch
 });
 }
 async function pageImages(pdfjsLib,page,env,seen){
-var ops=await page.getOperatorList(),out=[];
+var ops=await page.getOperatorList(),out=[],vp0=page.getViewport({scale:1}),pr=vp0.width/vp0.height;
 for(var i=0;i<ops.fnArray.length;i++){
 var fn=ops.fnArray[i];
 if(fn!==pdfjsLib.OPS.paintImageXObject&&fn!==pdfjsLib.OPS.paintJpegXObject)continue;
@@ -228,6 +228,7 @@ seen[id]=1;
 var obj=await getObj(page,id);
 if(!obj||!obj.width||!obj.height)continue;
 if(obj.width<150||obj.height<150)continue;
+if(obj.width>=700&&Math.abs(obj.width/obj.height-pr)/pr<0.06)continue;
 try{
 var c=drawImageObj(obj,env);
 if(!c)continue;
@@ -273,7 +274,7 @@ var page=await pdf.getPage(n),vp=page.getViewport({scale:1}),sc=Math.min(2.2,(wi
 var c=env.makeCanvas(Math.ceil(vps.width),Math.ceil(vps.height)),ctx=c.getContext('2d');
 ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
 await page.render({canvasContext:ctx,viewport:vps}).promise;
-var uri=env.toJpeg(c);
+var uri=env.toJpeg(c,0.82);
 c.width=1;c.height=1;
 if(page.cleanup)page.cleanup();
 return uri;
@@ -537,7 +538,7 @@ if(t.dataset.edelok){deleteExam(t.dataset.edelok);return}
 if(t.id==='pf'){$('fp').click();return}
 if(t.id==='pread'){startRead();return}
 if(t.id==='pgo'){startRun();return}
-if(t.id==='pvis'){startVision();return}
+if(t.id==='pvis'){startVision(!!(pj&&pj.visNext>1));return}
 if(t.id==='pai'){
 if(!pj)return;
 if(!localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey')){pmsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
@@ -733,7 +734,7 @@ var key=localStorage.getItem('studyapp.oakey');
 if(!key)return Promise.reject({code:'nokey'});
 var model=localStorage.getItem('studyapp.oamodel')||'gpt-5-mini';
 var base=(localStorage.getItem('studyapp.oabase')||'https://api.openai.com/v1').replace(/\/+$/,'');
-var body={model:model,instructions:sys,input:(imgs&&imgs.length?[{role:'user',content:[{type:'input_text',text:usr}].concat(imgs.map(function(u){return {type:'input_image',image_url:u}}))}]:usr),max_output_tokens:Math.max(max||450,1200),store:false};
+var body={model:model,instructions:sys,input:(imgs&&imgs.length?[{role:'user',content:[{type:'input_text',text:usr}].concat(imgs.map(function(u){return {type:'input_image',image_url:u,detail:'high'}}))}]:usr),max_output_tokens:Math.max(max||450,1200),store:false};
 if(/^(gpt-5|o\d)/.test(model))body.reasoning={effort:'low'};
 return fetch(base+'/responses',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+key},body:JSON.stringify(body)}).then(function(r){
 return r.json().catch(function(){return {}}).then(function(j){
@@ -1117,7 +1118,7 @@ document.head.appendChild(s);
 });
 return pdfLoad;
 }
-function pdfEnv(){return {makeCanvas:function(w,h){var c=document.createElement('canvas');c.width=w;c.height=h;return c},toJpeg:function(c){return c.toDataURL('image/jpeg',0.72)}}}
+function pdfEnv(){return {makeCanvas:function(w,h){var c=document.createElement('canvas');c.width=w;c.height=h;return c},toJpeg:function(c,q){return c.toDataURL('image/jpeg',q||0.72)}}}
 function mkChunks(pages){
 var chunks=[],cur=null;
 pages.forEach(function(p){
@@ -1218,32 +1219,77 @@ else if((c>=0x3400&&c<=0x9fff)||(c>=0x0400&&c<=0x052f)||(c>=0x3040&&c<=0x30ff)||
 var bad=(weird>10&&weird/(han+weird)>0.2)||(han>=40&&com/han<0.04);
 return {garbled:bad,han:han,weird:weird};
 }
-var VSYS='너는 시험 족보 이미지에서 문제를 옮겨 적는 도우미야. 이미지에 보이는 문제를 하나씩 원문 그대로 옮겨 적고 내용을 바꾸거나 요약하지 마. 객관식이면 선지를 그대로 옮기고, 주관식이면 선지는 빈 배열로 둬. 정답이 표시되어 있으면 반영하고 없으면 null로 둬. 문제가 사진이나 그림을 가리키면 needsImage를 true로 해. 문제가 아닌 안내 문구나 쪽 번호는 무시해. 출력은 JSON 하나만, 설명이나 코드블록 없이.';
+function hasKey(){return !!localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey')}
+var VSYS='너는 시험 족보 사진을 정확하게 옮겨 적는 도우미야. 이미지에 보이는 문제를 하나도 빠뜨리지 말고 원문 그대로 옮겨. 영어 용어, 숫자, 단위, 기호, 보기 번호를 바꾸지 마. 맞춤법을 고치거나 요약하지 마. 객관식이면 선지를 보이는 순서대로, 주관식이면 선지는 빈 배열로 둬. 정답이 표시되어 있으면(예: 정답: ③, 체크 표시) 반영하고 없으면 null이나 빈 문자열로 둬. 문제 번호는 보이는 대로 적어. 사진이나 그림이 딸린 문제는 needsImage를 true로 하고 그 사진 영역을 fig로 적어(이미지 전체 크기를 1로 본 비율 [왼쪽,위,오른쪽,아래]), 없으면 null. 쪽 맨 위가 앞 쪽 문제의 이어지는 부분(문제 번호 없이 선지나 나머지 문장만 있는 경우)이면 cont를 true로 해. 문제가 아닌 안내 문구나 쪽 번호는 무시해. 출력은 JSON 하나만, 설명이나 코드블록 없이.';
 function visionPrompt(job,pg){
-return '족보: '+job.name+'\n이 이미지는 PDF의 '+pg+'쪽이야.\n\n형식:\n{"questions":[{"no":"문제 번호","type":"mcq 또는 short","q":"문제 원문","o":["선지1","선지2"],"a":정답 번호(0부터, 모르면 null),"ans":"주관식 정답이 적혀 있으면 그대로, 없으면 빈 문자열","needsImage":false}]}';
+return '족보: '+job.name+'\n이 이미지는 PDF의 '+pg+'쪽이야.\n\n형식:\n{"questions":[{"no":"문제 번호","type":"mcq 또는 short","q":"문제 원문","o":["선지1","선지2"],"a":정답 번호(0부터, 모르면 null),"ans":"주관식 정답이 적혀 있으면 그대로, 없으면 빈 문자열","needsImage":false,"fig":null,"cont":false}]}';
 }
-function startVision(){
+function cropFig(uri,fig){
+return new Promise(function(res){
+if(!fig)return res(null);
+var im=new Image();
+im.onload=function(){
+try{
+var W=im.width,H=im.height,pad=0.02,x0=Math.max(0,fig[0]-pad),y0=Math.max(0,fig[1]-pad),x1=Math.min(1,fig[2]+pad),y1=Math.min(1,fig[3]+pad),w=(x1-x0)*W,h=(y1-y0)*H;
+if(w<60||h<60)return res(null);
+var k=Math.min(1,640/Math.max(w,h)),c=document.createElement('canvas');
+c.width=Math.round(w*k);c.height=Math.round(h*k);
+var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+x.drawImage(im,x0*W,y0*H,w,h,0,0,c.width,c.height);
+res(c.toDataURL('image/jpeg',0.8));
+}catch(e){res(null)}
+};
+im.onerror=function(){res(null)};
+im.src=uri;
+});
+}
+function mergeCont(list){
+var out=[];
+list.forEach(function(q){
+var p=out[out.length-1];
+if(q.cont&&p){
+if(q.q&&q.q.trim())p.q=(p.q+' '+q.q).trim();
+if(q.o.length){p.o=p.o.concat(q.o);if(p.o.length>=2)p.type='mcq'}
+if(q.a!==null&&p.a===null)p.a=q.a;
+if(q.ans&&!p.ans)p.ans=q.ans;
+if(q.needsImage&&!p.needsImage){p.needsImage=true;p.imgCrop=q.imgCrop}
+}else out.push(q);
+});
+return out;
+}
+function startVision(auto){
 if(pbusy||!pj)return;
-if(!localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey')){pmsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
-pbusy=true;pstop=false;pmsg='';acquireWake();renderHome();
-var list=[];
-var jobId=pj.eid;
+if(!hasKey()){pmsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
+pbusy=true;pvisRun=true;pstop=false;pmsg='';acquireWake();renderHome();
+var list=(pj.visList||[]).slice(),start=pj.visNext||1,jobId=pj.eid;
 loadPdfjs().then(function(lib){return idbGet('pdf:'+jobId).then(function(b){if(b)return b;if(pfile)return pfile.arrayBuffer();throw new Error('nopdf')}).then(function(buf){return PDFPROC.openPdf(lib,new Uint8Array(buf.slice(0)),{cMapUrl:CMAP_URL})})}).then(function(pdf){
-var n=pdf.numPages,i=1;
+var n=pdf.numPages,i=start;
 function step(){
 if(pstop)return Promise.resolve('stop');
 if(i>n)return Promise.resolve('end');
 var pg=i;
-setProg('그림으로 읽는 중 '+pg+' / '+n+'쪽',(pg-1)/n);
-return PDFPROC.shot(pdf,pg,pdfEnv(),1000).then(function(uri){return aiJson(visionPrompt(pj,pg),VSYS,8000,[uri])}).then(function(j){cleanExam(j).forEach(function(q){q.src=String(pg);list.push(q)});i++}).then(step);
+setProg('AI가 읽는 중 '+pg+' / '+n+'쪽',(pg-1)/n);
+return PDFPROC.shot(pdf,pg,pdfEnv(),1400).then(function(uri){
+return aiJson(visionPrompt(pj,pg),VSYS,8000,[uri]).then(function(j){
+var qs=cleanExam(j);
+qs.forEach(function(q){q.src=String(pg)});
+return Promise.all(qs.map(function(q){return (q.needsImage&&q.fig)?cropFig(uri,q.fig).then(function(c){q.imgCrop=c}):Promise.resolve()})).then(function(){return qs});
+});
+}).then(function(qs){
+qs.forEach(function(q){list.push(q)});
+pj.visList=list;pj.visNext=pg+1;i++;
+return idbSet('job',pj).catch(function(){});
+}).then(step);
 }
 return step();
 }).then(function(how){
-releaseWake();pbusy=false;
-if(how==='stop'){pmsg='멈췄어요.';renderHome();return}
-pj.lq=list;pj.lqFallback=false;pj.garbled=false;pj.warn='';pj.vision=true;
-return idbSet('job',pj).catch(function(){}).then(renderHome);
-}).catch(function(er){releaseWake();pbusy=false;pmsg=(er&&er.message==='nopdf')?'보관된 PDF를 찾지 못했어요. 버리기를 누르고 다시 올려주세요.':aiErr(er);renderHome()});
+releaseWake();pbusy=false;pvisRun=false;
+if(how==='stop'){pmsg='멈췄어요. 이어서 하려면 다시 눌러주세요.';renderHome();return}
+var merged=mergeCont(list).filter(function(q){return q.q&&q.q.trim().length>=3});
+if(!merged.length){pj.visList=null;pj.visNext=0;pmsg='AI가 문제를 찾지 못했어요. 글자로 읽은 결과를 보여드려요.';return idbSet('job',pj).catch(function(){}).then(renderHome)}
+pj.lq=merged;pj.lqFallback=false;pj.garbled=false;pj.warn='';pj.vision=true;pj.visList=null;pj.visNext=0;
+return idbSet('job',pj).catch(function(){}).then(function(){if(auto)return runExamLocal();renderHome()});
+}).catch(function(er){releaseWake();pbusy=false;pvisRun=false;pmsg=(er&&er.message==='nopdf')?'보관된 PDF를 찾지 못했어요. 버리기를 누르고 다시 올려주세요.':aiErr(er)+(pj&&pj.visNext>1?' (이어서 읽기를 누르면 멈춘 쪽부터 계속해요)':'');renderHome()});
 }
 function startRead(srcBuf){
 if(pbusy)return;
@@ -1265,14 +1311,14 @@ var lqr=pmode==='exam'?parseExamLocal(r.pages):null;
 pj={lid:'u'+Date.now().toString(36),name:nm,prof:(pform.prof||'').trim(),week:+pform.week||0,subject:pform.subject||curSub(),pages:r.pages,images:r.images,chunks:(pmode==='exam'?mkExamChunks(r.pages):mkChunks(r.pages)),mode:pmode,slot:pslot,lq:lqr?lqr.list:null,lqFallback:lqr?lqr.fallback:false,useAI:false,eid:jobEid,reread:isRe,eres:[],opts:JSON.parse(JSON.stringify(spOf(pform.subject||curSub()))),results:[],done:0,stage:'ready',error:''};
 var tq=textQuality(r.pages);pj.garbled=tq.garbled;pj.warn=tq.garbled?'글자가 깨져서 읽혔어요. 이 PDF에는 한글 글자 변환 정보가 없는 것 같아요.':'';
 pbusy=false;pmsg='';
-return idbSet('job',pj).catch(function(){}).then(function(){renderHome()});
+return idbSet('job',pj).catch(function(){}).then(function(){if(pj&&pj.mode==='exam'&&hasKey())startVision(true);else renderHome()});
 }).catch(function(er){
 pbusy=false;
 pmsg=(er&&(er.message==='nofile'||er.message==='nolib'))?'pdf.min.js와 pdf.worker.min.js를 저장소에 올려야 PDF를 읽을 수 있어요.':'PDF를 읽지 못했어요. 암호가 걸렸거나 손상된 파일일 수 있어요.';
 renderHome();
 });
 }
-var pmode='lec',pslot='',renE=null,delE=null,reEid=null,MINSC=4;
+var pmode='lec',pslot='',renE=null,delE=null,reEid=null,pvisRun=false,MINSC=4;
 function examSlots(s){var m={};(D.exams||[]).forEach(function(e){if(e.subject===s)m[e.slot]=1});return Object.keys(m).length}
 var STOPW={};'the and with from that this are for not can may has have into than then there which when where what how why was were been being its their also each both only more most less describe explain following below above between within without about other such these those they them will would should could any all one two three four'.split(' ').forEach(function(w){STOPW[w]=1});
 function toks(s){
@@ -1316,15 +1362,22 @@ return chunks.map(function(c){return {pages:c.pages,text:c.text}});
 function examParsePrompt(job,ch){
 return '족보: '+job.name+'\n\n'+ch.text+'\n\n형식:\n{"questions":[{"no":"문제 번호","type":"mcq 또는 short","q":"문제 원문","o":["선지1","선지2"],"a":정답 번호(0부터, 모르면 null),"ans":"주관식 정답이 적혀 있으면 그대로, 없으면 빈 문자열","needsImage":false,"src":"쪽 번호"}]}';
 }
+function validFig(f){
+if(!Array.isArray(f)||f.length!==4)return null;
+var v=f.map(Number);
+if(v.some(function(x){return !(x>=0&&x<=1)})||v[0]>=v[2]||v[1]>=v[3])return null;
+var a=(v[2]-v[0])*(v[3]-v[1]);
+return (a>=0.02&&a<=0.85)?v:null;
+}
 function cleanExam(r){
 var out=[];
 ((r&&r.questions)||[]).forEach(function(q){
-if(!q||typeof q.q!=='string'||q.q.trim().length<3)return;
+if(!q||typeof q.q!=='string'||(q.q.trim().length<3&&!(q.cont&&Array.isArray(q.o)&&q.o.length)))return;
 var o=Array.isArray(q.o)?q.o.map(String).filter(function(x){return x.trim()}):[];
 var type=(q.type==='mcq'&&o.length>=2)?'mcq':'short';
 if(type==='short')o=[];
 var a=Number.isInteger(q.a)&&q.a>=0&&q.a<o.length?q.a:null;
-out.push({no:String(q.no||''),type:type,q:q.q.trim(),o:o,a:a,ans:String(q.ans||'').trim(),needsImage:!!q.needsImage,src:String(q.src||'').replace(/[^0-9]/g,'')});
+out.push({no:String(q.no||''),type:type,q:q.q.trim(),o:o,a:a,ans:String(q.ans||'').trim(),needsImage:!!q.needsImage,src:String(q.src||'').replace(/[^0-9]/g,''),fig:validFig(q.fig),cont:!!q.cont});
 });
 return out;
 }
@@ -1451,7 +1504,8 @@ rec.e=q.ans||(typeof r.answer==='string'?r.answer.trim():'');
 if(!rec.e)rec.e='모범 답안을 만들 근거가 없어요.';
 else if(!q.ans)rec.aiAns=true;
 }
-if(q.needsImage){var pg=job.pages[(parseInt(q.src,10)||0)-1];if(pg&&pg.imgs.length)rec.img=job.images[pg.imgs[0]]}
+if(q.imgCrop)rec.img=q.imgCrop;
+else if(q.needsImage){var pg=job.pages[(parseInt(q.src,10)||0)-1];if(pg&&pg.imgs.length)rec.img=job.images[pg.imgs[0]]}
 recs.push(rec);
 if(lecId)sup.forEach(function(id){var m=items[id];if(m.lec.id===lecId){m.it.j=m.it.j||[];if(m.it.j.indexOf(job.eid)<0)m.it.j.push(job.eid);underl[id]=1}});
 if(rec.img&&lecId){
@@ -1606,7 +1660,7 @@ return chain.then(function(){save();return idbSet('pack',D).catch(function(){})}
 }
 function runExamLocal(){
 if(pj.garbled){pmsg='글자가 깨져서 읽혔어요. \u201cAI가 그림으로 읽기\u201d를 쓰거나 PDF를 다시 저장해서 올려주세요.';renderHome();return}
-if(!pj.lq||!pj.lq.length){pmsg='글자가 있는 쪽이 없어서 문제를 만들 수 없어요. 스캔한 PDF는 아직 지원하지 않아요.';renderHome();return}
+if(!pj.lq||!pj.lq.length){pmsg='글자가 있는 쪽이 없어서 문제를 만들 수 없어요. 아래 \u201cAI 연결\u201d에서 API 키를 저장하면 AI가 그림으로 읽을 수 있어요.';renderHome();return}
 pbusy=true;pmsg='';renderHome();
 var job=pj;
 if(job.reread)purgeExamData(job.eid);
@@ -1614,7 +1668,8 @@ var recs=job.lq.map(function(q,i){
 var rec={id:job.eid+'-q'+(i+1),lec:'',subject:job.subject,type:q.type,q:q.q,src:'exam',exam:job.slot,examId:job.eid};
 if(q.type==='mcq'){rec.o=q.o;rec.a=q.a!==null?q.a:-1;rec.e=''}
 else rec.e=q.ans||'정답 정보가 없어요.';
-if(q.needsImage){var pg=job.pages[(parseInt(q.src,10)||0)-1];if(pg&&pg.imgs.length)rec.img=job.images[pg.imgs[0]]}
+if(q.imgCrop)rec.img=q.imgCrop;
+else if(q.needsImage){var pg=job.pages[(parseInt(q.src,10)||0)-1];if(pg&&pg.imgs.length)rec.img=job.images[pg.imgs[0]]}
 return rec;
 });
 D.exams=(D.exams||[]).filter(function(e){return e.id!==job.eid}).concat([{id:job.eid,subject:job.subject,slot:job.slot,title:job.name,pdf:true}]);
@@ -1802,6 +1857,10 @@ return h+'<div class="pn"><b style="font-weight:500">정리를 마쳤어요</b><
 if(!procOpen&&!pj)return h+'<button class="btn pri full" id="pp">'+ic('upload',16)+' PDF를 올려서 정리하기</button>';
 h+='<div class="pn">';
 if(pj&&pj.mode==='exam'&&!pj.useAI&&pj.lq){
+if(pbusy&&pvisRun){
+h+='<b style="font-weight:500">'+esc(pj.name)+'</b><div class="bar" style="margin-top:8px"><i id="pgb" style="width:'+(pj.visNext>1?Math.round((pj.visNext-1)/pj.pages.length*100):0)+'%"></i></div><div class="note" id="pg">'+esc(pmsg||'AI가 읽는 중…')+'</div><div class="note" style="margin:6px 0 8px">AI가 쪽마다 읽어서 문제로 만들어요. 화면을 켜두고 앱을 떠나지 마세요.</div><button class="btn" id="pstop">멈추기</button>';
+return h+'</div>';
+}
 if(pj.garbled){
 h+='<b style="font-weight:500">'+esc(pj.name)+'</b><div class="err" style="margin:6px 0">'+esc(pj.warn)+'</div>';
 if(pbusy)h+='<div class="bar"><i id="pgb" style="width:0%"></i></div><div class="note" id="pg">'+esc(pmsg||'그림으로 읽는 중…')+'</div><div class="note" style="margin:6px 0 8px">화면을 켜두고 앱을 떠나지 마세요.</div><button class="btn" id="pstop">멈추기</button>';
@@ -1814,10 +1873,11 @@ return h+'</div>';
 var nm2=pj.lq.filter(function(q){return q.type==='mcq'}).length,ni=pj.lq.filter(function(q){return q.needsImage}).length;
 h+='<input id="pn2" type="text" value="'+esc(pj.name)+'" style="width:100%;margin:0 0 6px"><div class="note" style="margin:0 0 8px">'+pj.pages.length+'쪽에서 문제 '+pj.lq.length+'개를 읽었어요 (객관식 '+nm2+' · 주관식 '+(pj.lq.length-nm2)+' · 사진 문제 '+ni+')'+(pj.vision?'<br>AI가 그림으로 읽었어요.':'')+(pj.reread?'<br>다시 읽은 결과예요. 저장하면 이 족보의 문제가 바뀌고, 이 족보 문제의 푼 기록은 지워져요.':'')+(pj.lqFallback?'<br>문제 번호를 찾지 못해서 쪽 단위로 만들었어요. AI로 다시 읽으면 더 잘 나뉠 수 있어요.':'')+'</div>';
 h+=pj.lq.slice(0,3).map(function(q){return '<div class="note" style="margin:0 0 6px;color:var(--tx)">'+esc(q.no?q.no+'. ':'')+esc(q.q.slice(0,70))+(q.q.length>70?'…':'')+(q.o.length?' <span class="src">(선지 '+q.o.length+'개)</span>':'')+'</div>'}).join('');
-if(pbusy)h+='<div class="note">저장하는 중…</div>';
+if(pbusy&&pvisRun)h+='<div class="bar"><i id="pgb" style="width:0%"></i></div><div class="note" id="pg">'+esc(pmsg||'그림으로 읽는 중…')+'</div><div class="note" style="margin:6px 0 8px">화면을 켜두고 앱을 떠나지 마세요.</div><button class="btn" id="pstop">멈추기</button>';
+else if(pbusy)h+='<div class="note">저장하는 중…</div>';
 else{
 if(pmsg)h+='<div class="err" style="margin:0 0 8px">'+esc(pmsg)+'</div>';
-h+='<div style="display:flex;gap:6px;margin-top:6px"><button class="btn pri" id="pgo" style="flex:1">이대로 저장</button><button class="btn" id="pcx">버리기</button></div><button class="btn full" id="pai" style="margin-top:6px">AI로 다시 읽기</button><div class="note" style="margin-top:8px">글자로 읽은 그대로 문제로 만들어요. AI를 쓰지 않아서 요금도 나가지 않아요.</div>';
+h+='<div style="display:flex;gap:6px;margin-top:6px"><button class="btn pri" id="pgo" style="flex:1">이대로 저장</button><button class="btn" id="pcx">버리기</button></div>'+(hasKey()?'<button class="btn pri full" id="pvis" style="margin-top:6px">'+(pj.visNext>1?'AI로 이어서 읽기':'AI로 읽기 ('+pj.pages.length+'번 호출)')+'</button>':'<div class="note" style="margin-top:6px">아래 \u201cAI 연결\u201d에서 API 키를 저장하면 AI가 더 정확하게 읽어요.</div>')+'<div class="note" style="margin-top:8px">AI 없이 PDF 글자로만 읽은 결과예요. 글자가 이상하면 AI로 읽어보세요.</div>';
 }
 return h+'</div>';
 }
