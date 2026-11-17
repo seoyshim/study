@@ -32,6 +32,7 @@ button{font:inherit;color:var(--tx);cursor:pointer}
 .btn.pri{background:var(--accbg);border-color:var(--accbd);color:var(--acc)}
 .btn.full{width:100%}
 input[type=text],select{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px;min-width:0}
+.row>.btn{white-space:nowrap;flex:none}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{background:none;border:.5px solid var(--bd2);border-radius:8px;padding:6px 12px;font-size:13px}
 .chip.on{background:var(--accbg);border-color:var(--accbd);color:var(--acc)}
@@ -44,7 +45,8 @@ input[type=text],select{font:inherit;font-size:14px;color:var(--tx);background:v
 .met small{display:block;font-size:12px;color:var(--tx2)}
 .met b{font-size:20px;font-weight:500}
 .cell{height:44px;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:12px;border-radius:8px;border:.5px dashed var(--bd2);background:none;color:var(--tx2)}
-.cell.d{background:var(--accbg);border:.5px solid var(--accbd);color:var(--acc)}
+.cell.d{background:var(--accbg);border:.5px solid var(--accbd);color:var(--acc);height:auto;min-height:56px;padding:4px 3px}
+.cn{font-size:11px;line-height:1.25;max-width:100%;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;text-align:center;color:var(--tx)}
 .cell.on{box-shadow:0 0 0 2px var(--accbd)}
 .yl{font-size:13px;color:var(--tx2)}
 .hd{font-size:12px;color:var(--tx2);text-align:center}
@@ -92,7 +94,7 @@ textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v1.2</span></header>
+<header><span id="ttl"></span><span class="ver">v1.3</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -449,11 +451,20 @@ if(id==='기타')return '기타 · 퀴즈 등';
 if(id==='17-이전')return '17학번 이전 족보';
 var p=String(id).split('-');return p[0]+'학번 '+p[1]+' 족보';
 }
+function cellName(k,id){
+var s=curSub(),list=[];
+if(k==='w'){
+lecsOf(s).filter(function(l){return wkOf(l)===+id}).sort(lsort).forEach(function(l){list.push(lname(l))});
+}else{
+(D.exams||[]).filter(function(e){return e.subject===s&&e.slot===id}).forEach(function(e){list.push((st.names[e.id]&&st.names[e.id].t)||e.title)});
+}
+if(!list.length)return '';
+return {first:list[0],more:list.length-1};
+}
 function cell(k,id,label){
-var on=slot&&slot.k===k&&String(slot.id)===String(id),d=false;
-if(k==='w')d=lecsOf(curSub()).some(function(l){return wkOf(l)===+id});
-else d=(D.exams||[]).some(function(e){return e.subject===curSub()&&e.slot===id});
-return '<button class="cell'+(d?' d':'')+(on?' on':'')+'" data-k="'+k+'" data-id="'+id+'" aria-label="'+titleOf(k,id)+(d?', 연결됨':', 비어 있음')+'">'+(label?'<span>'+label+'</span>':'')+'<span>'+ic(d?'check':'plus',16)+(k==='e'&&d?' '+examCount(id):'')+'</span></button>';
+var on=slot&&slot.k===k&&String(slot.id)===String(id),nm=cellName(k,id),d=!!nm;
+var full=d?nm.first+(nm.more?' 외 '+nm.more:''):'';
+return '<button class="cell'+(d?' d':'')+(on?' on':'')+'" data-k="'+k+'" data-id="'+id+'" aria-label="'+titleOf(k,id)+(d?', '+esc(full):', 비어 있음')+'">'+(label?'<span>'+label+'</span>':'')+'<span>'+ic(d?'check':'plus',d?14:16)+'</span>'+(d?'<span class="cn">'+esc(nm.first)+'</span>'+(nm.more?'<span class="src">외 '+nm.more+'</span>':''):'')+'</button>';
 }
 function panel(){
 var s=curSub(),h='<div class="pn"><div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 6px"><b style="font-weight:500">'+titleOf(slot.k,slot.id)+'</b><button class="mi" id="pc" aria-label="닫기" style="color:var(--tx2)">'+ic('x',18)+'</button></div>';
