@@ -94,7 +94,7 @@ textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v2.4</span></header>
+<header><span id="ttl"></span><span class="ver">v2.5</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -334,8 +334,8 @@ var n='강의 '+(p.lectures||[]).length+'개, 문제 '+(p.questions||[]).length+
 idbSet('pack',D).then(function(){impMsg=n;afterImport()}).catch(function(){impMsg=n+' 다만 이 기기에 저장하지 못해서 앱을 닫으면 사라질 수 있어요.';afterImport()});
 };
 r.onerror=function(){impMsg='파일을 열지 못했어요.';afterImport()};
+r.onloadend=function(){e.target.value=''};
 r.readAsText(f);
-e.target.value='';
 });
 function shareDeck(d){
 var bin=atob(d.b64),u=new Uint8Array(bin.length);
@@ -507,7 +507,7 @@ return h+'</div>';
 $('p0').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
 if(t.id==='bk'){exportBackup().then(function(){renderHome()});return}
-if(t.id==='br'){$('fbk').click();return}
+if(t.id==='br'){$('fbk').value='';$('fbk').click();return}
 if(t.id==='brn'){bkPend=null;bkPackPend=null;renderHome();return}
 if(t.id==='bry'){st=Object.assign(freshState(),bkPend);migrate();save();if(bkPackPend){D=norm(bkPackPend);buildIndex();idbSet('pack',D).catch(function(){})}bkPend=null;bkPackPend=null;bkMsg='백업으로 바꿨어요. ('+bkSummary(st,D)+')';renderHome();return}
 if(t.dataset.pv){localStorage.setItem('studyapp.aiprov',t.dataset.pv);akMsg='';renderHome();return}
@@ -521,7 +521,7 @@ akMsg='저장했어요. 연결 시험을 눌러 확인해보세요.';renderHome(
 if(t.id==='akd'){localStorage.removeItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey');akMsg='키를 삭제했어요.';renderHome();return}
 if(t.id==='akt'){akMsg='시험 중…';renderHome();aiCall('짧게 답해.','한국어로 \u201c연결됨\u201d이라고만 답해.',20).then(function(){akMsg='연결됐어요.';renderHome()}).catch(function(er){akMsg=aiErr(er);renderHome()});return}
 if(t.id==='pp'){pmode='lec';procOpen=true;if(!pform.subject)pform.subject=curSub();renderHome();return}
-if(t.id==='pe'){pmode='exam';pslot=slot.id;procOpen=true;reEid=null;pform.name='';pform.subject=curSub();pfile=null;pmsg='';renderHome();$('fp').click();return}
+if(t.id==='pe'){pmode='exam';pslot=slot.id;procOpen=true;reEid=null;pform.name='';pform.subject=curSub();pfile=null;pmsg='';renderHome();openFp();return}
 if(t.dataset.ereread){rereadExam(t.dataset.ereread);return}
 if(t.id==='pgorev'){pdone=null;procOpen=false;show(2);return}
 if(t.dataset.eslot){slot={k:'e',id:t.dataset.eslot};renderHome();return}
@@ -543,7 +543,7 @@ if(t.dataset.ersave){var en=$('ern').value.trim();if(!en){$('ere').textContent='
 if(t.dataset.edel){delE=t.dataset.edel;renderHome();return}
 if(t.dataset.edelno){delE=null;renderHome();return}
 if(t.dataset.edelok){deleteExam(t.dataset.edelok);return}
-if(t.id==='pf'){$('fp').click();return}
+if(t.id==='pf'){openFp();return}
 if(t.id==='pread'){startRead();return}
 if(t.id==='pgo'){startRun();return}
 if(t.id==='pvis'){startVision(!!(pj&&pj.visNext>1));return}
@@ -556,7 +556,7 @@ if(t.id==='pstop'){pstop=true;setProg('멈추는 중…',-1);return}
 if(t.id==='pcx'){discardJob();return}
 if(t.id==='pdone'){pdone=null;procOpen=false;renderHome();return}
 if(t.dataset.popen){st.lec[curSub()]=t.dataset.popen;save();pdone=null;procOpen=false;show(1);return}
-if(t.id==='imp'){$('fi').click();return}
+if(t.id==='imp'){$('fi').value='';$('fi').click();return}
 if(t.dataset.s!==undefined){st.cur=+t.dataset.s;slot=null;hint=false;ren=null;save();renderHome();$('ttl').textContent='과목';return}
 if(t.id==='sa'){var v=$('sn').value.trim();if(!v){$('se').textContent='과목 이름을 입력하세요';return}st.extra=(st.extra||[]).concat([v]);st.cur=subs().length-1;slot=null;save();renderHome();return}
 if(t.dataset.k){var id=t.dataset.k==='w'?+t.dataset.id:t.dataset.id;slot=(slot&&slot.k===t.dataset.k&&String(slot.id)===String(id))?null:{k:t.dataset.k,id:id};hint=false;renderHome();return}
@@ -1315,6 +1315,7 @@ pj.lq=merged;pj.lqFallback=false;pj.garbled=false;pj.warn='';pj.vision=true;pj.v
 return idbSet('job',pj).catch(function(){}).then(function(){if(auto)return runExamLocal();renderHome()});
 }).catch(function(er){releaseWake();pbusy=false;pvisRun=false;pmsg=(er&&er.message==='nopdf')?'보관된 PDF를 찾지 못했어요. 버리기를 누르고 다시 올려주세요.':aiErr(er)+(pj&&pj.visNext>1?' (이어서 읽기를 누르면 멈춘 쪽부터 계속해요)':'');renderHome()});
 }
+function openFp(){$('fp').value='';$('fp').click()}
 function startRead(srcBuf){
 if(pbusy)return;
 if(!srcBuf&&!pfile){pmsg='PDF를 먼저 고르세요.';renderHome();return}
@@ -1583,7 +1584,7 @@ else{pmsg='보관된 PDF를 찾지 못했어요. 아래에서 PDF를 다시 골�
 }).catch(function(){pmsg='보관된 PDF를 열지 못했어요. 아래에서 PDF를 다시 골라주세요.';renderHome()});
 }else{
 renderHome();
-$('fp').click();
+openFp();
 }
 }
 function examPanel(){
@@ -1947,12 +1948,11 @@ pfile=f;
 if(pmode==='exam'){
 if(reEid){var ex0=(D.exams||[]).filter(function(x){return x.id===reEid})[0];pform.name=(st.names[reEid]&&st.names[reEid].t)||(ex0&&ex0.title)||pform.name}
 else pform.name=f.name.replace(/\.pdf$/i,'');
-pmsg='';e.target.value='';startRead();return;
+pmsg='';startRead();return;
 }
 if(!pform.name)pform.name=f.name.replace(/\.pdf$/i,'');
 pmsg='';
 renderHome();
-e.target.value='';
 });
 var bkMsg='',bkPend=null,bkPackPend=null;
 function freshState(){return {ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[],sp:{},qa:{},qkind:'all'}}
@@ -1980,13 +1980,20 @@ var f=e.target.files&&e.target.files[0];
 if(!f)return;
 var r=new FileReader();
 r.onload=function(){
-try{var o=JSON.parse(r.result);if(!o||o.app!=='studyapp'||!o.st||typeof o.st!=='object')throw new Error('bad');bkPend=o.st;bkPackPend=(o.pack&&typeof o.pack==='object')?o.pack:null;bkMsg=''}
-catch(err){bkPend=null;bkMsg='백업 파일을 읽지 못했어요. 이 앱에서 내보낸 파일인지 확인해주세요.'}
+var txt=String(r.result||'').replace(/^\uFEFF/,'').trim(),mb=(f.size/1048576).toFixed(1)+'MB',o=null,why='';
+if(!txt)why='파일이 비어 있어요 ('+mb+'). iCloud에서 아직 내려받지 못한 파일일 수 있어요. 파일 앱에서 그 파일을 한 번 눌러 내려받은 뒤 다시 골라보세요.';
+else{try{o=JSON.parse(txt)}catch(err){why=(txt.charAt(txt.length-1)!=='}')?'파일이 중간에서 끊긴 것 같아요 ('+mb+'). 옮기는 도중에 잘렸을 수 있어요. AirDrop이나 파일 앱으로 다시 옮겨보세요.':'파일 내용이 깨져 있어요 ('+mb+').'}}
+if(o&&!why){
+if(o.app==='studyapp'&&o.st&&typeof o.st==='object'){bkPend=o.st;bkPackPend=(o.pack&&typeof o.pack==='object')?o.pack:null;bkMsg=''}
+else if(Array.isArray(o.lectures)||Array.isArray(o.subjects))why='이건 \u201c자료 파일\u201d이에요. 과목 탭의 \u201c자료 불러오기\u201d로 불러오세요.';
+else why='이 앱에서 내보낸 백업 파일이 아니에요. 파일 이름이 study_backup_…으로 시작하는지 확인해주세요.';
+}
+if(why){bkPend=null;bkPackPend=null;bkMsg=why}
 renderHome();
 };
-r.onerror=function(){bkMsg='파일을 열지 못했어요.';renderHome()};
+r.onerror=function(){bkMsg='파일을 열지 못했어요. 파일이 너무 크거나 아직 내려받지 못했을 수 있어요.';renderHome()};
+r.onloadend=function(){e.target.value=''};
 r.readAsText(f);
-e.target.value='';
 });
 boot();
 })();
