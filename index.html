@@ -94,7 +94,7 @@ textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v1.3</span></header>
+<header><span id="ttl"></span><span class="ver">v1.4</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -688,10 +688,12 @@ var model=localStorage.getItem('studyapp.aimodel')||'claude-haiku-5-5';
 return fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:model,max_tokens:max||450,system:sys,messages:[{role:'user',content:usr}]})}).then(function(r){
 return r.json().catch(function(){return {}}).then(function(j){
 if(!r.ok)throw {code:r.status,msg:(j&&j.error&&j.error.message)||''};
+aiTrunc=(j&&j.stop_reason==='max_tokens');
 return (j.content||[]).filter(function(c){return c.type==='text'}).map(function(c){return c.text}).join('\n').trim();
 });
 });
 }
+var aiTrunc=false;
 function aiProv(){return localStorage.getItem('studyapp.aiprov')==='openai'?'openai':'claude'}
 function oaText(j){
 if(j&&j.output_text)return String(j.output_text).trim();
@@ -709,6 +711,7 @@ if(/^(gpt-5|o\d)/.test(model))body.reasoning={effort:'low'};
 return fetch(base+'/responses',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+key},body:JSON.stringify(body)}).then(function(r){
 return r.json().catch(function(){return {}}).then(function(j){
 if(!r.ok)throw {code:r.status,msg:(j&&j.error&&j.error.message)||''};
+aiTrunc=!!(j&&j.status==='incomplete'&&j.incomplete_details&&j.incomplete_details.reason==='max_output_tokens');
 return oaText(j);
 });
 });
@@ -726,7 +729,8 @@ if(er&&er.code===403)return '이 키로는 사용할 수 없어요. 키 권한�
 if(er&&er.code===404)return '모델 이름이나 주소를 찾을 수 없어요. \u201cAI 연결\u201d에서 모델 이름과 중계 주소를 확인해주세요.';
 if(er&&er.code===429)return '요청이 너무 많아요. 잠시 후 다시 해보세요.';
 if(er&&er.code==='timeout')return '응답이 너무 오래 걸려요. 다시 시도해주세요.';
-if(er&&er.code==='json')return 'AI 답을 읽지 못했어요. 다시 시도해주세요.';
+if(er&&er.code==='trunc')return 'AI 답이 너무 길어서 중간에 잘렸어요. 다시 시도해주세요.';
+if(er&&er.code==='json')return 'AI 답을 읽지 못했어요. 다시 시도해주세요.'+(er.raw?' (응답 앞부분: \u201c'+er.raw+'\u201d)':'');
 if(er&&er.code)return '요청에 실패했어요 ('+er.code+'). '+(er.msg||'');
 if(aiProv()==='openai')return 'OpenAI로 연결하지 못했어요. 브라우저에서 직접 연결하는 게 막혔을 수 있어요. 그렇다면 중계 주소가 필요해요.';
 return '연결하지 못했어요. 인터넷 연결을 확인해주세요.';
@@ -1117,8 +1121,40 @@ var a=s.indexOf('{'),b=s.lastIndexOf('}');
 if(a<0||b<=a)return null;
 try{return JSON.parse(s.slice(a,b+1))}catch(e){return null}
 }
-function aiJson(prompt,sys){
-function once(extra){return withTimeout(aiCall(sys||PSYS,prompt+(extra||''),6500),170000).then(function(txt){var j=parseJson(txt);if(!j)throw {code:'json'};return j})}
+function repairJson(s){
+var st=[],inStr=false,es=false,cut=-1,cutStack=null;
+for(var i=0;i<s.length;i++){
+var c=s.charAt(i);
+if(inStr){if(es)es=false;else if(c==='\\')es=true;else if(c==='"')inStr=false;continue}
+if(c==='"'){inStr=true;continue}
+if(c==='{'||c==='[')st.push(c);
+else if(c==='}'||c===']'){st.pop();if(c==='}'&&st.length&&st[st.length-1]==='['){cut=i+1;cutStack=st.slice()}}
+}
+if(cut<0)return null;
+var out=s.slice(0,cut);
+for(var j=cutStack.length-1;j>=0;j--)out+=cutStack[j]==='['?']':'}';
+return out;
+}
+function splitChunk(ch){
+var segs=ch.text.split(/\n\n(?=\[p\d+\])/);
+if(segs.length<2)return null;
+var m=Math.ceil(segs.length/2);
+function mk(arr){return {pages:arr.map(function(s){var x=s.match(/^\[p(\d+)\]/);return x?+x[1]:0}),text:arr.join('\n\n')}}
+return [mk(segs.slice(0,m)),mk(segs.slice(m))];
+}
+function aiJson(prompt,sys,max){
+function once(extra){
+return withTimeout(aiCall(sys||PSYS,prompt+(extra||''),max||8000),170000).then(function(txt){
+var tr=aiTrunc,j=parseJson(txt);
+if(j)return j;
+if(tr){
+var part=null;
+try{var rj=repairJson(String(txt||'').replace(/```json|```/g,''));part=rj?JSON.parse(rj):null}catch(e){}
+throw {code:'trunc',partial:part};
+}
+throw {code:'json',raw:String(txt||'').replace(/\s+/g,' ').slice(0,80)};
+});
+}
 return once().catch(function(er){if(er&&er.code==='json')return once('\n\n반드시 유효한 JSON 하나만 출력해. 설명이나 코드블록은 쓰지 마.');throw er});
 }
 function cleanRes(r){
@@ -1194,7 +1230,7 @@ pages.forEach(function(p){
 var txt=(p.text||'').trim();
 if(txt.length<4)return;
 var piece='[p'+p.n+']'+(p.imgs.length?' (사진 '+p.imgs.length+'개)':'')+'\n'+txt;
-if(!cur||cur.chars+piece.length>7000||cur.pages.length>=6){cur={pages:[],chars:0,text:''};chunks.push(cur)}
+if(!cur||cur.chars+piece.length>4500||cur.pages.length>=4){cur={pages:[],chars:0,text:''};chunks.push(cur)}
 cur.pages.push(p.n);cur.chars+=piece.length;cur.text+=(cur.text?'\n\n':'')+piece;
 });
 return chunks.map(function(c){return {pages:c.pages,text:c.text}});
@@ -1232,7 +1268,14 @@ if(pstop)return Promise.resolve('stop');
 if(pj.done>=pj.chunks.length)return Promise.resolve('parsed');
 var i=pj.done;
 setProg('문제 읽는 중 '+(i+1)+' / '+pj.chunks.length,i/pj.chunks.length);
-return aiJson(examParsePrompt(pj,pj.chunks[i]),ESYS).then(function(j){pj.eres.push(cleanExam(j));pj.done++;return saveJob()}).then(parseStep);
+return aiJson(examParsePrompt(pj,pj.chunks[i]),ESYS).then(function(j){pj.eres.push(cleanExam(j));pj.done++;return saveJob()}).catch(function(er){
+if(er&&er.code==='trunc'){
+var ch=pj.chunks[i],halves=splitChunk(ch);
+if(halves){pj.chunks.splice(i,1,halves[0],halves[1]);return saveJob()}
+if(er.partial){pj.eres.push(cleanExam(er.partial));pj.done++;return saveJob()}
+}
+throw er;
+}).then(parseStep);
 }
 function prep(){
 if(pj.qs)return;
@@ -1461,6 +1504,13 @@ setProg('AI 정리 중 '+(i+1)+' / '+pj.chunks.length,i/pj.chunks.length);
 return aiJson(chunkPrompt(pj,ch)).then(function(j){
 pj.results.push(cleanRes(j));pj.done++;
 return idbSet('job',pj).catch(function(){});
+}).catch(function(er){
+if(er&&er.code==='trunc'){
+var halves=splitChunk(ch);
+if(halves){pj.chunks.splice(i,1,halves[0],halves[1]);return idbSet('job',pj).catch(function(){})}
+if(er.partial){pj.results.push(cleanRes(er.partial));pj.done++;return idbSet('job',pj).catch(function(){})}
+}
+throw er;
 }).then(step);
 }
 step().then(function(how){
