@@ -94,7 +94,7 @@ textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v1.9</span></header>
+<header><span id="ttl"></span><span class="ver">v2.0</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -303,6 +303,7 @@ books:'<path d="M4 19.5V4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/
 repeat:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M3 21v-5h5"/>',
 layers:'<path d="m12 2 10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5"/>',
 file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"/>',
+sliders:'<path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
 refresh:'<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
 underline:'<path d="M6 4v6a6 6 0 0 0 12 0V4M4 20h16"/>',
 copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
@@ -385,17 +386,21 @@ function wlabel(w){return w?w+'주차':'주차 미지정'}
 
 
 var tab=0,slot=null,hint=false,pend=null,allOpen=false,openMn={},curLecId=null;
-var NAMES=['과목','정리본','복습','카드'];
-var NAVI=['books','book','repeat','layers'];
+var NAMES=['과목','정리본','복습','카드','설정'];
+var NAVI=['books','book','repeat','layers','sliders'];
+var homeView='sub';
 
 function renderNav(){
 $('nav').innerHTML=NAMES.map(function(n,i){return '<button data-t="'+i+'" class="'+(i===tab?'on':'')+'">'+ic(NAVI[i],22)+n+'</button>'}).join('');
 }
 function show(n){
 tab=n;pend=null;hideTb();
-for(var i=0;i<4;i++){$('p'+i).style.display=i===n?'block':'none'}
-$('ttl').textContent=n===0?'과목':curSub()+' · '+NAMES[n];
+var pgi=(n===4)?0:n;
+homeView=(n===4)?'set':'sub';
+for(var i=0;i<4;i++){$('p'+i).style.display=i===pgi?'block':'none'}
+$('ttl').textContent=n===0?'과목':n===4?'설정':curSub()+' · '+NAMES[n];
 renderNav();
+if(n===0||n===4)renderHome();
 if(n===1)renderNotes();
 if(n===2)startQuiz(false);
 if(n===3)renderCards();
@@ -417,7 +422,23 @@ var o=spOf(s);
 return '<div class="lbl">'+esc(s)+' 학습 방식</div><textarea id="spn" rows="4" placeholder="이 과목에서 원하는 정리 방식을 적어두세요. 예: 구조물 이름과 위치를 중요하게 정리해줘. 기전은 단계별로, 시험에 나오는 수치는 빠짐없이.">'+esc(o.note)+'</textarea><div style="display:flex;gap:16px;margin:8px 0 4px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="spq"'+(o.q?' checked':'')+'> 문제 만들기</label><label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="spc"'+(o.c?' checked':'')+'> 빈칸 카드 만들기</label></div><div class="note">다음 PDF 처리부터 이 과목에 반영돼요. 이미 정리한 강의는 바뀌지 않아요.</div>';
 }
 var ren=null;
+function settingsHTML(){
+var h='';
+var pv=aiProv(),ak=localStorage.getItem(pv==='openai'?'studyapp.oakey':'studyapp.aikey')||'',am=localStorage.getItem(pv==='openai'?'studyapp.oamodel':'studyapp.aimodel')||(pv==='openai'?'gpt-5-mini':'claude-haiku-5-5');
+h+='<div class="lbl">AI 연결</div><div class="chips" style="margin:0 0 8px"><button class="chip'+(pv==='claude'?' on':'')+'" data-pv="claude">Claude</button><button class="chip'+(pv==='openai'?' on':'')+'" data-pv="openai">GPT</button></div>';
+if(!ak){h+='<div style="display:flex;gap:6px"><input id="ak" type="password" placeholder="'+(pv==='openai'?'OpenAI API 키 붙여넣기':'Claude API 키 붙여넣기')+'" autocomplete="off" style="flex:1"><button class="btn" id="aks">저장</button></div><div class="err" id="ake"></div>'}
+else{h+='<div class="row" style="border-top:none;padding-top:0"><span>연결됨 · 키 끝 '+esc(ak.slice(-4))+'</span><span style="display:flex;gap:6px"><button class="btn" id="akt">연결 시험</button><button class="btn" id="akd">키 삭제</button></span></div><div class="note" style="margin:2px 0 4px">모델</div><input id="am" type="text" value="'+esc(am)+'" style="width:100%">'}
+if(pv==='openai')h+='<div class="note" style="margin:8px 0 4px">중계 주소 (선택)</div><input id="ab" type="text" value="'+esc(localStorage.getItem('studyapp.oabase')||'')+'" placeholder="비워두면 OpenAI로 바로 연결해요" style="width:100%">';
+if(akMsg)h+='<div class="note" style="margin-top:6px;color:var(--acc)">'+esc(akMsg)+'</div>';
+h+='<div class="note" style="margin-top:8px">키는 이 폰에만 저장돼요. 용어를 AI에게 물을 때 고른 말과 그 문장이 '+(pv==='openai'?'OpenAI':'Anthropic')+'로 전송되고, 쓴 만큼 요금이 나가요.</div>';
+h+='<div class="lbl">백업</div><div style="display:flex;gap:6px"><button class="btn" id="bk" style="flex:1">'+ic('download',16)+' 백업 내보내기</button><button class="btn" id="br" style="flex:1">'+ic('upload',16)+' 백업 불러오기</button></div>';
+if(bkMsg)h+='<div class="note" style="margin-top:6px;color:var(--acc)">'+esc(bkMsg)+'</div>';
+if(bkPend)h+='<div class="pn" style="margin-top:8px"><b style="font-weight:500">이 백업으로 바꿀까요?</b><div class="note" style="margin:4px 0 8px">'+esc(bkSummary(bkPend))+'<br>지금 앱에 있는 과목, 표시, 메모, 복습 기록은 이 백업 내용으로 바뀌어요.</div><div style="display:flex;gap:6px"><button class="btn pri" id="bry">바꾸기</button><button class="btn" id="brn">취소</button></div></div>';
+h+='<div class="note" style="margin-top:6px">과목, 하이라이트, 메모, 복습 기록, 용어를 파일로 저장해요. API 키와 불러온 자료는 들어가지 않아요.</div>';
+return h;
+}
 function renderHome(){
+if(homeView==='set'){$('p0').innerHTML=settingsHTML();return}
 var h='';
 if(impMsg)h+='<div class="note" style="margin:6px 0 8px;color:var(--acc)">'+esc(impMsg)+'</div>';
 if(!D.lectures.length){h+='<div class="pn" style="margin:12px 0 4px"><b style="font-weight:500">자료가 아직 없어요</b><div class="note" style="margin:4px 0 10px">Claude에서 받은 자료 파일(.json)을 불러오면 정리본, 문제, 카드가 채워져요.</div><button class="btn pri full" id="imp">'+ic('upload',16)+' 자료 불러오기</button></div>'}
@@ -448,17 +469,6 @@ h+=examListHTML();
 h+=spHTML();
 h+=procHTML();
 h+='<div class="lbl">자료</div><button class="btn full" id="imp">'+ic('upload',16)+' 자료 불러오기</button><div class="note" style="margin-top:6px">같은 강의를 다시 불러오면 새 내용으로 바뀌고, 하이라이트와 메모는 그대로 남아요.</div>';
-h+='<div class="lbl">백업</div><div style="display:flex;gap:6px"><button class="btn" id="bk" style="flex:1">'+ic('download',16)+' 백업 내보내기</button><button class="btn" id="br" style="flex:1">'+ic('upload',16)+' 백업 불러오기</button></div>';
-if(bkMsg)h+='<div class="note" style="margin-top:6px;color:var(--acc)">'+esc(bkMsg)+'</div>';
-if(bkPend)h+='<div class="pn" style="margin-top:8px"><b style="font-weight:500">이 백업으로 바꿀까요?</b><div class="note" style="margin:4px 0 8px">'+esc(bkSummary(bkPend))+'<br>지금 앱에 있는 과목, 표시, 메모, 복습 기록은 이 백업 내용으로 바뀌어요.</div><div style="display:flex;gap:6px"><button class="btn pri" id="bry">바꾸기</button><button class="btn" id="brn">취소</button></div></div>';
-h+='<div class="note" style="margin-top:6px">과목, 하이라이트, 메모, 복습 기록, 용어를 파일로 저장해요. API 키와 불러온 자료는 들어가지 않아요.</div>';
-var pv=aiProv(),ak=localStorage.getItem(pv==='openai'?'studyapp.oakey':'studyapp.aikey')||'',am=localStorage.getItem(pv==='openai'?'studyapp.oamodel':'studyapp.aimodel')||(pv==='openai'?'gpt-5-mini':'claude-haiku-5-5');
-h+='<div class="lbl">AI 연결</div><div class="chips" style="margin:0 0 8px"><button class="chip'+(pv==='claude'?' on':'')+'" data-pv="claude">Claude</button><button class="chip'+(pv==='openai'?' on':'')+'" data-pv="openai">GPT</button></div>';
-if(!ak){h+='<div style="display:flex;gap:6px"><input id="ak" type="password" placeholder="'+(pv==='openai'?'OpenAI API 키 붙여넣기':'Claude API 키 붙여넣기')+'" autocomplete="off" style="flex:1"><button class="btn" id="aks">저장</button></div><div class="err" id="ake"></div>'}
-else{h+='<div class="row" style="border-top:none;padding-top:0"><span>연결됨 · 키 끝 '+esc(ak.slice(-4))+'</span><span style="display:flex;gap:6px"><button class="btn" id="akt">연결 시험</button><button class="btn" id="akd">키 삭제</button></span></div><div class="note" style="margin:2px 0 4px">모델</div><input id="am" type="text" value="'+esc(am)+'" style="width:100%">'}
-if(pv==='openai')h+='<div class="note" style="margin:8px 0 4px">중계 주소 (선택)</div><input id="ab" type="text" value="'+esc(localStorage.getItem('studyapp.oabase')||'')+'" placeholder="비워두면 OpenAI로 바로 연결해요" style="width:100%">';
-if(akMsg)h+='<div class="note" style="margin-top:6px;color:var(--acc)">'+esc(akMsg)+'</div>';
-h+='<div class="note" style="margin-top:8px">키는 이 폰에만 저장돼요. 용어를 AI에게 물을 때 고른 말과 그 문장이 '+(pv==='openai'?'OpenAI':'Anthropic')+'로 전송되고, 쓴 만큼 요금이 나가요.</div>';
 $('p0').innerHTML=h;
 }
 function titleOf(k,id){
@@ -524,7 +534,7 @@ return;
 }
 if(t.id==='rlinkai'){
 if(linkBusy)return;
-if(!localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey')){linkMsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
+if(!localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey')){linkMsg='먼저 설정 탭의 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
 linkBusy=true;linkMsg='연결 중…';renderHome();
 linkQuestions(curSub(),function(i,n){linkMsg='연결 중 '+(i+1)+' / '+n;var el=$('lkm');if(el)el.textContent=linkMsg}).then(function(r){linkBusy=false;linkMsg=r.n?r.linked+'개를 연결했어요 · 밑줄 친 문장 '+r.under+'개':'연결할 문제가 없어요.';renderHome()}).catch(function(er){linkBusy=false;linkMsg=aiErr(er);renderHome()});
 return;
@@ -541,7 +551,7 @@ if(t.id==='pgo'){startRun();return}
 if(t.id==='pvis'){startVision(!!(pj&&pj.visNext>1));return}
 if(t.id==='pai'){
 if(!pj)return;
-if(!localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey')){pmsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
+if(!localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey')){pmsg='먼저 설정 탭의 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
 pj.useAI=true;startRun();return;
 }
 if(t.id==='pstop'){pstop=true;setProg('멈추는 중…',-1);return}
@@ -750,11 +760,11 @@ function askTerm(text,sentence,lecture){
 return aiCall(AISYS,'강의: '+lecture+'\n문장: '+sentence+'\n찾는 말: '+text,450);
 }
 function aiErr(er){
-if(er&&er.code==='nokey')return '과목 탭 맨 아래 \u201cAI 연결\u201d에서 API 키를 먼저 저장해주세요.';
+if(er&&er.code==='nokey')return '설정 탭의 \u201cAI 연결\u201d에서 API 키를 먼저 저장해주세요.';
 if(er&&er.msg&&/credit|balance|quota|billing/i.test(er.msg))return '크레딧이나 사용 한도가 부족한 것 같아요. 결제 설정과 잔액을 확인해주세요.';
 if(er&&er.code===401)return 'API 키가 맞지 않아요. 키를 다시 확인해주세요.';
 if(er&&er.code===403)return '이 키로는 사용할 수 없어요. 키 권한을 확인해주세요.';
-if(er&&er.code===404)return '모델 이름이나 주소를 찾을 수 없어요. \u201cAI 연결\u201d에서 모델 이름과 중계 주소를 확인해주세요.';
+if(er&&er.code===404)return '모델 이름이나 주소를 찾을 수 없어요. 설정 탭의 \u201cAI 연결\u201d에서 모델 이름과 중계 주소를 확인해주세요.';
 if(er&&er.code===429)return '요청이 너무 많아요. 잠시 후 다시 해보세요.';
 if(er&&er.code==='timeout')return '응답이 너무 오래 걸려요. 다시 시도해주세요.';
 if(er&&er.code==='trunc')return 'AI 답이 너무 길어서 중간에 잘렸어요. 다시 시도해주세요.';
@@ -1259,7 +1269,7 @@ return out;
 }
 function startVision(auto){
 if(pbusy||!pj)return;
-if(!hasKey()){pmsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
+if(!hasKey()){pmsg='먼저 설정 탭의 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
 pbusy=true;pvisRun=true;pstop=false;pmsg='';acquireWake();renderHome();
 var list=(pj.visList||[]).slice(),start=pj.visNext||1,jobId=pj.eid;
 loadPdfjs().then(function(lib){return idbGet('pdf:'+jobId).then(function(b){if(b)return b;if(pfile)return pfile.arrayBuffer();throw new Error('nopdf')}).then(function(buf){return PDFPROC.openPdf(lib,new Uint8Array(buf.slice(0)),{cMapUrl:CMAP_URL})})}).then(function(pdf){
@@ -1660,7 +1670,7 @@ return chain.then(function(){save();return idbSet('pack',D).catch(function(){})}
 }
 function runExamLocal(){
 if(pj.garbled){pmsg='글자가 깨져서 읽혔어요. \u201cAI가 그림으로 읽기\u201d를 쓰거나 PDF를 다시 저장해서 올려주세요.';renderHome();return}
-if(!pj.lq||!pj.lq.length){pmsg='글자가 있는 쪽이 없어서 문제를 만들 수 없어요. 아래 \u201cAI 연결\u201d에서 API 키를 저장하면 AI가 그림으로 읽을 수 있어요.';renderHome();return}
+if(!pj.lq||!pj.lq.length){pmsg='글자가 있는 쪽이 없어서 문제를 만들 수 없어요. 설정 탭의 \u201cAI 연결\u201d에서 API 키를 저장하면 AI가 그림으로 읽을 수 있어요.';renderHome();return}
 pbusy=true;pmsg='';renderHome();
 var job=pj;
 if(job.reread)purgeExamData(job.eid);
@@ -1758,7 +1768,7 @@ if(pbusy||!pj)return;
 if(pj.mode==='exam'&&!pj.useAI)return runExamLocal();
 if(pj.garbled){pmsg='글자가 깨져서 읽힌 PDF라 정리할 수 없어요. 한글 프로그램이나 Word에서 PDF로 다시 저장해서 올려주세요.';renderHome();return}
 var key=localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey');
-if(!key){pmsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
+if(!key){pmsg='먼저 설정 탭의 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
 if(!pj.chunks.length){pmsg='글자가 있는 쪽이 없어서 정리할 내용이 없어요. 스캔한 PDF는 아직 지원하지 않아요.';renderHome();return}
 if(pj.mode==='exam')return runExam();
 pbusy=true;pstop=false;pj.stage='run';pj.error='';pmsg='';
@@ -1877,7 +1887,7 @@ if(pbusy&&pvisRun)h+='<div class="bar"><i id="pgb" style="width:0%"></i></div><d
 else if(pbusy)h+='<div class="note">저장하는 중…</div>';
 else{
 if(pmsg)h+='<div class="err" style="margin:0 0 8px">'+esc(pmsg)+'</div>';
-h+='<div style="display:flex;gap:6px;margin-top:6px"><button class="btn pri" id="pgo" style="flex:1">이대로 저장</button><button class="btn" id="pcx">버리기</button></div>'+(hasKey()?'<button class="btn pri full" id="pvis" style="margin-top:6px">'+(pj.visNext>1?'AI로 이어서 읽기':'AI로 읽기 ('+pj.pages.length+'번 호출)')+'</button>':'<div class="note" style="margin-top:6px">아래 \u201cAI 연결\u201d에서 API 키를 저장하면 AI가 더 정확하게 읽어요.</div>')+'<div class="note" style="margin-top:8px">AI 없이 PDF 글자로만 읽은 결과예요. 글자가 이상하면 AI로 읽어보세요.</div>';
+h+='<div style="display:flex;gap:6px;margin-top:6px"><button class="btn pri" id="pgo" style="flex:1">이대로 저장</button><button class="btn" id="pcx">버리기</button></div>'+(hasKey()?'<button class="btn pri full" id="pvis" style="margin-top:6px">'+(pj.visNext>1?'AI로 이어서 읽기':'AI로 읽기 ('+pj.pages.length+'번 호출)')+'</button>':'<div class="note" style="margin-top:6px">설정 탭의 \u201cAI 연결\u201d에서 API 키를 저장하면 AI가 더 정확하게 읽어요.</div>')+'<div class="note" style="margin-top:8px">AI 없이 PDF 글자로만 읽은 결과예요. 글자가 이상하면 AI로 읽어보세요.</div>';
 }
 return h+'</div>';
 }
