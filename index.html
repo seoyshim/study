@@ -94,7 +94,7 @@ textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v2.1</span></header>
+<header><span id="ttl"></span><span class="ver">v2.3</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -356,7 +356,7 @@ if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceW
 }
 
 var KEY='studyapp.v1';
-var st={ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[],sp:{},qa:{}};
+var st={ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[],sp:{},qa:{},qkind:'all'};
 try{var raw=localStorage.getItem(KEY);if(raw){var o=JSON.parse(raw);for(var k in o)st[k]=o[k]}}catch(e){}
 var dbDoc=null,saveT=null;
 function save(){
@@ -372,7 +372,7 @@ function lecsOf(s){return D.lectures.filter(function(l){return l.subject===s})}
 function lecById(id){return D.lectures.filter(function(l){return l.id===id})[0]}
 function asgOf(s){if(!st.asg[s])st.asg[s]={w:{},e:{}};return st.asg[s]}
 function migrate(){
-st.lw=st.lw||{};st.names=st.names||{};st.qlec=st.qlec||{};st.sp=st.sp||{};st.qa=st.qa||{};
+st.lw=st.lw||{};st.names=st.names||{};st.qlec=st.qlec||{};st.sp=st.sp||{};st.qa=st.qa||{};if(!st.qkind)st.qkind='all';
 for(var s in (st.asg||{})){var w=st.asg[s].w||{};for(var k in w){if(!st.lw[w[k]])st.lw[w[k]]=+k}st.asg[s].w={}}
 }
 function lname(l){var n=st.names[l.id];return (n&&n.t)||l.title}
@@ -457,15 +457,13 @@ return;
 h+='<div class="row"><span style="min-width:0">'+esc(lname(l))+(lprof(l)?' <span class="src">'+esc(lprof(l))+'</span>':'')+' <span class="src">'+wlabel(wkOf(l))+'</span></span><span style="display:flex;gap:6px"><button class="btn" data-ren="'+l.id+'" aria-label="이름 변경">'+ic('pen',15)+'</button><button class="btn pri" data-open="'+l.id+'">정리본</button></span></div>';
 });
 h+='<div class="lbl">강의록 · 주차별</div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">';
-for(var i=1;i<=15;i++)h+=cell('w',i,i+'주');
+for(var i=1;i<=15;i++){h+=cell('w',i,i+'주');if(slot&&slot.k==='w'&&i%5===0&&Math.ceil(slot.id/5)===i/5)h+='<div style="grid-column:1/-1">'+panel()+'</div>'}
 h+='</div>';
-if(slot&&slot.k==='w')h+=panel();
 h+='<div class="lbl">족보 · 학번별</div><div style="display:grid;grid-template-columns:78px 1fr 1fr;gap:6px;align-items:center"><div></div><div class="hd">중간</div><div class="hd">기말</div>';
-[23,22,21,20,19,18].forEach(function(y){h+='<div class="yl">'+y+'학번</div>'+cell('e',y+'-중간','')+cell('e',y+'-기말','')});
-h+='<div class="yl">17학번 이전</div><div style="grid-column:span 2;display:grid">'+cell('e','17-이전','')+'</div>';
-h+='<div class="yl" style="margin-top:6px">기타</div><div style="grid-column:span 2;display:grid;margin-top:6px">'+cell('e','기타','')+'</div></div>';
-if(slot&&slot.k==='e')h+=panel();
-h+=examListHTML();
+function inl(match){return (slot&&slot.k==='e'&&match(String(slot.id)))?'<div style="grid-column:1/-1">'+panel()+'</div>':''}
+[23,22,21,20,19,18].forEach(function(y){h+='<div class="yl">'+y+'학번</div>'+cell('e',y+'-중간','')+cell('e',y+'-기말','')+inl(function(id){return id.indexOf(y+'-')===0})});
+h+='<div class="yl">17학번 이전</div><div style="grid-column:span 2;display:grid">'+cell('e','17-이전','')+'</div>'+inl(function(id){return id==='17-이전'});
+h+='<div class="yl" style="margin-top:6px">기타</div><div style="grid-column:span 2;display:grid;margin-top:6px">'+cell('e','기타','')+'</div>'+inl(function(id){return id==='기타'})+'</div>';
 h+=spHTML();
 h+=procHTML();
 h+='<div class="lbl">자료</div><button class="btn full" id="imp">'+ic('upload',16)+' 자료 불러오기</button><div class="note" style="margin-top:6px">같은 강의를 다시 불러오면 새 내용으로 바뀌고, 하이라이트와 메모는 그대로 남아요.</div>';
@@ -954,6 +952,19 @@ if(b){allOpen=!allOpen;document.querySelectorAll('#nb .mn').forEach(function(n){
 });
 
 var QS=[],qi=0,answered=false,ignoreDue=false,requeued={};
+function qKind(q){return q.src==='exam'?'exam':(q.type==='cloze'?'cloze':'prac')}
+function kindOk(q){var k=st.qkind||'all';return k==='all'||qKind(q)===k}
+function kindHTML(){
+var all=qsOf(curSub()),c={exam:0,prac:0,cloze:0};
+all.forEach(function(q){c[qKind(q)]++});
+var kinds=['exam','prac','cloze'].filter(function(k){return c[k]>0});
+if(kinds.length<2)return '';
+if(st.qkind!=='all'&&!c[st.qkind])st.qkind='all';
+var nm={exam:'기출',prac:'연습',cloze:'빈칸'};
+var h='<div class="chips" style="margin:4px 0 8px"><button class="chip'+(st.qkind==='all'?' on':'')+'" data-qk="all">전체 '+all.length+'</button>';
+kinds.forEach(function(k){h+='<button class="chip'+(st.qkind===k?' on':'')+'" data-qk="'+k+'">'+nm[k]+' '+c[k]+'</button>'});
+return h+'</div>';
+}
 function qsOf(s){return D.questions.filter(function(q){return q.subject===s})}
 function scopeOf(){return st.qscope||'all'}
 function inScope(q,sc){
@@ -963,7 +974,7 @@ if(sc==='out')return w===-1;
 return w===+sc.slice(2);
 }
 function scopeList(){
-var list=qsOf(curSub()),ws={},out=0;
+var list=qsOf(curSub()).filter(kindOk),ws={},out=0;
 list.forEach(function(q){var w=qWeek(q);if(w===-1)out++;else ws[w]=(ws[w]||0)+1});
 var o=[{k:'all',label:'전체',n:list.length}];
 Object.keys(ws).map(Number).sort(function(a,b){return (a||99)-(b||99)}).forEach(function(w){o.push({k:'w:'+w,label:wlabel(w),n:ws[w]})});
@@ -981,7 +992,7 @@ ignoreDue=!!all;requeued={};qi=0;
 var sc=scopeOf();
 if(!scopeList().some(function(o){return o.k===sc})){sc='all';st.qscope='all'}
 var now=Date.now();
-QS=qsOf(curSub()).filter(function(q){return inScope(q,sc)}).filter(function(q){var r=st.srs[q.id];return ignoreDue||!r||r.due<=now});
+QS=qsOf(curSub()).filter(kindOk).filter(function(q){return inScope(q,sc)}).filter(function(q){var r=st.srs[q.id];return ignoreDue||!r||r.due<=now});
 drawQuiz();
 }
 function fmt(ms){
@@ -993,8 +1004,9 @@ return Math.round(h/24)+'일 후';
 function drawQuiz(){
 var el=$('p2'),all=qsOf(curSub());
 if(!all.length){el.innerHTML='<div class="note" style="margin-top:12px">이 과목에는 아직 문제가 없어요.</div>';return}
-var sc=scopeOf(),list=all.filter(function(q){return inScope(q,sc)});
-var head='<div style="margin:4px 0 8px"><select id="qsc" style="width:100%">'+scopeList().map(function(o){return '<option value="'+o.k+'"'+(o.k===sc?' selected':'')+'>'+o.label+' ('+o.n+'개)</option>'}).join('')+'</select></div>';
+var kh=kindHTML();
+var sc=scopeOf(),list=all.filter(kindOk).filter(function(q){return inScope(q,sc)});
+var head=kh+'<div style="margin:4px 0 8px"><select id="qsc" style="width:100%">'+scopeList().map(function(o){return '<option value="'+o.k+'"'+(o.k===sc?' selected':'')+'>'+o.label+' ('+o.n+'개)</option>'}).join('')+'</select></div>';
 if(qi>=QS.length){
 var now=Date.now(),next=null;
 list.forEach(function(q){var r=st.srs[q.id];if(r&&r.due>now&&(next===null||r.due<next))next=r.due});
@@ -1029,6 +1041,7 @@ var m=$('mvm');if(m)m.textContent='옮겼어요. 다음 복습부터 새 범위�
 });
 $('p2').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
+if(t.dataset.qk){st.qkind=t.dataset.qk;save();startQuiz(false);return}
 if(t.id==='qa'){startQuiz(true);return}
 if(t.id==='qasv'){var qq=QS[qi];st.qa[qq.id]=+t.dataset.k;save();t.textContent='저장했어요. 다음부터 이 선지가 정답으로 나와요.';t.style.pointerEvents='none';return}
 if(t.id==='sasv'){var sv=$('sat').value.trim();if(!sv)return;var sq=QS[qi];st.qa[sq.id]=sv;save();$('fb').innerHTML=ratingHTML(sq);return}
@@ -1329,7 +1342,7 @@ pmsg=(er&&(er.message==='nofile'||er.message==='nolib'))?'pdf.min.js와 pdf.work
 renderHome();
 });
 }
-var pmode='lec',pslot='',renE=null,delE=null,reEid=null,pvisRun=false,MINSC=4;
+var pmode='lec',pslot='',renE=null,delE=null,reEid=null,pvisRun=false,MINSC=1;
 function examSlots(s){var m={};(D.exams||[]).forEach(function(e){if(e.subject===s)m[e.slot]=1});return Object.keys(m).length}
 var STOPW={};'the and with from that this are for not can may has have into than then there which when where what how why was were been being its their also each both only more most less describe explain following below above between within without about other such these those they them will would should could any all one two three four'.split(' ').forEach(function(w){STOPW[w]=1});
 function toks(s){
@@ -1355,7 +1368,7 @@ toks(q.q+' '+(q.o||[]).join(' ')+' '+(q.ans||'')).forEach(function(x){qs[x]=1});
 var sc=[];
 idx.sents.forEach(function(s){var v=0;for(var x in qs)if(s.set[x])v+=idx.idf(x);if(v>0)sc.push({s:s,v:v})});
 sc.sort(function(a,b){return b.v-a.v});
-return sc.slice(0,8);
+return sc.slice(0,12);
 }
 var ESYS='너는 시험 족보 PDF에서 문제를 옮겨 적는 도우미야. 입력은 한 족보의 일부 쪽에서 뽑은 글자야. 문제를 하나씩 원문 그대로 옮기고 내용을 바꾸거나 요약하지 마. 객관식이면 선지를 그대로 옮기고, 주관식이면 선지는 빈 배열로 둬. 정답표나 정답이 적혀 있으면 반영하고 없으면 null이나 빈 문자열로 둬. 문제가 사진이나 그림을 보라고 하면 needsImage를 true로 해. 문제가 아닌 안내 문구는 무시해. 출력은 JSON 하나만, 설명이나 코드블록 없이.';
 var MSYS='너는 시험 문제가 어느 강의 범위인지 판단하는 도우미야. 후보 문장 중에 문제의 근거가 되는 것이 있으면 그 강의 id와 근거 문장 id를 골라. 근거가 없으면 lec를 빈 문자열로 해. 주관식 모범 답안은 후보 문장에 있는 내용만 사용해서 쓰고 새로운 사실을 지어내지 마. 객관식 정답은 후보 문장으로 판단할 수 있을 때만 골라. 출력은 JSON 하나만, 설명이나 코드블록 없이.';
@@ -1583,7 +1596,7 @@ h+='<div style="margin:6px 0"><input id="ern" type="text" value="'+esc(nm)+'" st
 }else if(delE===e.id){
 h+='<div class="pn" style="margin:6px 0"><div class="note" style="margin:0 0 8px;color:var(--tx)">\u201c'+esc(nm)+'\u201d과 문제 '+qs.length+'개를 지울까요? 정리본의 밑줄도 사라져요.</div><div style="display:flex;gap:6px"><button class="btn" data-edelok="'+e.id+'">지우기</button><button class="btn" data-edelno="1">취소</button></div></div>';
 }else{
-h+='<div class="row" style="border-top:none;padding:6px 0"><span style="min-width:0">'+esc(nm)+'<br><span class="src">문제 '+qs.length+'개 · 연결 안 됨 '+out+'개</span></span><span style="display:flex;gap:6px"><button class="btn" data-eren="'+e.id+'" aria-label="이름 변경">'+ic('pen',15)+'</button><button class="btn" data-edel="'+e.id+'" aria-label="삭제">'+ic('trash',15)+'</button></span></div><div style="margin:-2px 0 6px"><button class="btn" data-ereread="'+e.id+'">'+ic('refresh',14)+' 다시 읽기</button></div>';
+h+='<div class="row" style="border-top:none;padding:6px 0"><span style="min-width:0">'+esc(nm)+'<br><span class="src">문제 '+qs.length+'개</span></span><span style="display:flex;gap:6px"><button class="btn" data-eren="'+e.id+'" aria-label="이름 변경">'+ic('pen',15)+'</button><button class="btn" data-edel="'+e.id+'" aria-label="삭제">'+ic('trash',15)+'</button></span></div><div style="margin:-2px 0 6px"><button class="btn" data-ereread="'+e.id+'">'+ic('refresh',14)+' 다시 읽기</button></div>';
 }
 });
 h+='<button class="btn pri full" id="pe" style="margin-top:8px">'+ic('upload',16)+(list.length?' 이 칸에 족보 PDF 더 올리기':' 이 칸에 족보 PDF 올리기')+'</button>';
@@ -1685,7 +1698,7 @@ return rec;
 });
 D.exams=(D.exams||[]).filter(function(e){return e.id!==job.eid}).concat([{id:job.eid,subject:job.subject,slot:job.slot,title:job.name,pdf:true}]);
 D.questions=mergeBy(D.questions,recs);
-return localLink(job.subject).then(function(r){
+return smartLink(job.subject,function(i,n){setProg('강의와 연결하는 중 '+(i+1)+' / '+n,i/n)}).then(function(r){
 var inS=recs.filter(function(x){return x.lec}).length;
 pdone={exam:true,title:job.name,questions:recs.length,inScope:inS,out:recs.length-inS,underlined:r.under,photos:recs.filter(function(x){return x.img}).length};
 pj=null;procOpen=true;pmsg='';pfile=null;pbusy=false;
@@ -1702,6 +1715,11 @@ return '<div class="note" style="margin:0 0 6px">정답 정보가 없어요. 아
 var linkBusy=false,linkMsg='';
 function examCount(slotId){return (D.exams||[]).filter(function(e){return e.subject===curSub()&&e.slot===slotId}).length}
 function slotOrder(id){var o=['23-중간','23-기말','22-중간','22-기말','21-중간','21-기말','20-중간','20-기말','19-중간','19-기말','18-중간','18-기말','17-이전','기타'],i=o.indexOf(id);return i<0?99:i}
+function linkTargets(subject){return D.questions.filter(function(q){return q.subject===subject&&q.src==='exam'&&(!q.lec||q.lk!=='ai')&&st.qlec[q.id]===undefined})}
+function smartLink(subject,onProg){
+if(!hasKey())return localLink(subject);
+return linkQuestions(subject,onProg).catch(function(er){return localLink(subject).then(function(r){r.err=aiErr(er);return r})});
+}
 function unlinkedQs(subject){return D.questions.filter(function(q){return q.subject===subject&&q.src==='exam'&&!q.lec&&st.qlec[q.id]===undefined})}
 function examListHTML(){
 var s=curSub(),list=(D.exams||[]).filter(function(e){return e.subject===s}).sort(function(a,b){return slotOrder(a.slot)-slotOrder(b.slot)});
@@ -1717,7 +1735,7 @@ if(linkMsg)h+='<div class="note" id="lkm" style="margin-top:6px;color:var(--acc)
 return h;
 }
 function linkQuestions(subject,onProg){
-var qs=unlinkedQs(subject);
+var qs=linkTargets(subject);
 if(!qs.length||!lecsOf(subject).length)return Promise.resolve({n:0,linked:0,under:0});
 var idx=buildIdx(subject),items={};
 D.lectures.forEach(function(l){l.sections.forEach(function(sec){sec.items.forEach(function(it){items[it.id]={it:it,sec:sec,lec:l}})})});
@@ -1739,6 +1757,7 @@ return aiJson(matchPrompt(fake,batches[bi]),MSYS).then(function(j){((j&&j.result
 return step().then(function(){
 var linked=0,underl={},pjobs=[];
 qs.forEach(function(q){
+if(need.indexOf(q.id)>=0)q.lk='ai';
 var r=res[q.id]||{},lecId='';
 var sup=(Array.isArray(r.support)?r.support:[]).filter(function(id){return items[id]});
 if(sup.length)lecId=items[sup[0]].lec.id;
@@ -1747,7 +1766,7 @@ if(!lecId)return;
 q.lec=lecId;linked++;
 sup.forEach(function(id){var m=items[id];if(m.lec.id===lecId){m.it.j=m.it.j||[];if(m.it.j.indexOf(q.examId)<0)m.it.j.push(q.examId);underl[id]=1}});
 if(q.type==='mcq'&&q.a<0&&Number.isInteger(r.a)&&r.a>=0&&r.a<(q.o||[]).length){q.a=r.a;q.e='정답은 AI가 강의 내용으로 추정한 거예요.'}
-if(q.type==='short'&&/근거가 없어요/.test(q.e||'')&&typeof r.answer==='string'&&r.answer.trim()){q.e=r.answer.trim();q.aiAns=true}
+if(q.type==='short'&&/근거가 없어요|정답 정보가 없어요/.test(q.e||'')&&typeof r.answer==='string'&&r.answer.trim()){q.e=r.answer.trim();q.aiAns=true}
 if(q.img){var lec=D.lectures.filter(function(l){return l.id===lecId})[0],sec=sup.length&&items[sup[0]]?items[sup[0]].sec:lec.sections[0];if(lec&&(sec||lec.sections[0]))pjobs.push({img:q.img,lec:lec,sec:sec||lec.sections[0],eid:q.examId})}
 });
 var chain=Promise.resolve();
@@ -1760,9 +1779,9 @@ return idbSet('pack',D).catch(function(){});
 }
 function autoLink(){
 var s=pdone&&pdone.subject;
-if(!s||!unlinkedQs(s).length)return Promise.resolve();
+if(!s||!linkTargets(s).length)return Promise.resolve();
 setProg('족보 문제를 새 강의에 연결하는 중…',1);
-return localLink(s).then(function(r){pdone.linked=r.linked;pdone.under=r.under}).catch(function(er){pdone.linkErr='연결하지 못했어요'});
+return smartLink(s,function(i,n){setProg('족보 문제를 새 강의에 연결하는 중 '+(i+1)+' / '+n,1)}).then(function(r){pdone.linked=r.linked;pdone.under=r.under}).catch(function(er){pdone.linkErr='연결하지 못했어요'});
 }
 function startRun(){
 if(pbusy||!pj)return;
@@ -1860,7 +1879,7 @@ function procHTML(){
 var h='<div class="lbl">PDF 처리</div>';
 if(!curSub()&&!pj&&!pdone)return h+'<div class="note">먼저 위에서 과목을 추가하세요.</div>';
 if(pdone&&pdone.exam){
-return h+'<div class="pn"><b style="font-weight:500">족보 정리를 마쳤어요</b><div class="note" style="margin:4px 0 8px">'+esc(pdone.title)+' · 문제 '+pdone.questions+'개(연결됨 '+pdone.inScope+' · 연결 안 됨 '+pdone.out+') · 밑줄 친 문장 '+pdone.underlined+'개 · 사진 '+pdone.photos+'개</div><div style="display:flex;gap:6px"><button class="btn pri" id="pgorev">복습 열기</button><button class="btn" id="pdone">닫기</button></div></div>';
+return h+'<div class="pn"><b style="font-weight:500">족보 정리를 마쳤어요</b><div class="note" style="margin:4px 0 8px">'+esc(pdone.title)+' · 문제 '+pdone.questions+'개 · 강의와 연결 '+pdone.inScope+'개 · 밑줄 친 문장 '+pdone.underlined+'개 · 사진 '+pdone.photos+'개</div><div style="display:flex;gap:6px"><button class="btn pri" id="pgorev">복습 열기</button><button class="btn" id="pdone">닫기</button></div></div>';
 }
 if(pdone){
 return h+'<div class="pn"><b style="font-weight:500">정리를 마쳤어요</b><div class="note" style="margin:4px 0 8px">'+esc(pdone.title)+' · 문장 '+pdone.sentences+'개 · 문제 '+pdone.questions+'개 · 빈칸 '+pdone.cloze+'개 · 새 용어 '+pdone.terms+'개 · 사진 '+pdone.photos+'개'+(pdone.linked?'<br>족보 문제 '+pdone.linked+'개를 이 강의에 연결하고 문장 '+pdone.under+'개에 밑줄을 쳤어요':'')+(pdone.linkErr?'<br>'+esc(pdone.linkErr)+' (과목 탭에서 다시 연결할 수 있어요)':'')+'</div><div style="display:flex;gap:6px"><button class="btn pri" data-popen="'+pdone.lid+'">정리본 열기</button><button class="btn" id="pdone">닫기</button></div></div>';
@@ -1885,7 +1904,7 @@ var nm2=pj.lq.filter(function(q){return q.type==='mcq'}).length,ni=pj.lq.filter(
 h+='<input id="pn2" type="text" value="'+esc(pj.name)+'" style="width:100%;margin:0 0 6px"><div class="note" style="margin:0 0 8px">'+pj.pages.length+'쪽에서 문제 '+pj.lq.length+'개를 읽었어요 (객관식 '+nm2+' · 주관식 '+(pj.lq.length-nm2)+' · 사진 문제 '+ni+')'+(pj.vision?'<br>AI가 그림으로 읽었어요.':'')+(pj.reread?'<br>다시 읽은 결과예요. 저장하면 이 족보의 문제가 바뀌고, 이 족보 문제의 푼 기록은 지워져요.':'')+(pj.lqFallback?'<br>문제 번호를 찾지 못해서 쪽 단위로 만들었어요. AI로 다시 읽으면 더 잘 나뉠 수 있어요.':'')+'</div>';
 h+=pj.lq.slice(0,3).map(function(q){return '<div class="note" style="margin:0 0 6px;color:var(--tx)">'+esc(q.no?q.no+'. ':'')+esc(q.q.slice(0,70))+(q.q.length>70?'…':'')+(q.o.length?' <span class="src">(선지 '+q.o.length+'개)</span>':'')+'</div>'}).join('');
 if(pbusy&&pvisRun)h+='<div class="bar"><i id="pgb" style="width:0%"></i></div><div class="note" id="pg">'+esc(pmsg||'그림으로 읽는 중…')+'</div><div class="note" style="margin:6px 0 8px">화면을 켜두고 앱을 떠나지 마세요.</div><button class="btn" id="pstop">멈추기</button>';
-else if(pbusy)h+='<div class="note">저장하는 중…</div>';
+else if(pbusy)h+='<div class="note" id="pg">'+esc(pmsg||'저장하는 중…')+'</div>';
 else{
 if(pmsg)h+='<div class="err" style="margin:0 0 8px">'+esc(pmsg)+'</div>';
 h+='<div style="display:flex;gap:6px;margin-top:6px"><button class="btn pri" id="pgo" style="flex:1">이대로 저장</button><button class="btn" id="pcx">버리기</button></div>'+(hasKey()?'<button class="btn pri full" id="pvis" style="margin-top:6px">'+(pj.visNext>1?'AI로 이어서 읽기':'AI로 읽기 ('+pj.pages.length+'번 호출)')+'</button>':'<div class="note" style="margin-top:6px">설정 탭의 \u201cAI 연결\u201d에서 API 키를 저장하면 AI가 더 정확하게 읽어요.</div>')+'<div class="note" style="margin-top:8px">AI 없이 PDF 글자로만 읽은 결과예요. 글자가 이상하면 AI로 읽어보세요.</div>';
@@ -1936,7 +1955,7 @@ renderHome();
 e.target.value='';
 });
 var bkMsg='',bkPend=null;
-function freshState(){return {ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[],sp:{},qa:{}}}
+function freshState(){return {ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[],sp:{},qa:{},qkind:'all'}}
 function bkSummary(s){
 var m=0,mm=0;
 for(var k in (s.marks||{})){(s.marks[k]||[]).forEach(function(x){if(x[2]==='mm')mm++;else m++})}
