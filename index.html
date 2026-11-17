@@ -82,6 +82,9 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 .bar{height:4px;background:var(--s1);border-radius:2px;margin:0 0 14px}
 .bar i{display:block;height:4px;background:var(--acc);border-radius:2px}
 .ic{vertical-align:-3px}
+textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px;resize:vertical;width:100%;line-height:1.5}
+.clz{background:var(--accbg);color:var(--acc);border-radius:6px;padding:0 6px}
+.clz.on{font-weight:500}
 .deck{border:.5px solid var(--bd);border-radius:12px;padding:12px;margin:0 0 8px}
 .pc{border:.5px solid var(--bd);border-radius:12px;padding:10px;margin:0 0 8px}
 .pc img{width:100%;max-height:220px;object-fit:contain;background:var(--s1);border-radius:8px;display:block;margin:0 0 8px}
@@ -89,7 +92,7 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v0.8</span></header>
+<header><span id="ttl"></span><span class="ver">v1.1</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -99,11 +102,174 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 <nav id="nav"></nav>
 </div>
 <input type="file" id="fi" accept=".json,application/json" hidden>
-<input type="file" id="fb" accept=".txt,.json,text/plain,application/json" hidden>
+<input type="file" id="fbk" accept=".txt,.json,text/plain,application/json" hidden>
+<input type="file" id="fp" accept="application/pdf,.pdf" hidden>
+<script>
+var PDFPROC=(function(){
+function stripSubset(n){return String(n||'').replace(/^[A-Z]{6}\+/,'')}
+function hlPix(r,g,b){
+var mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+return mn>=100&&mx>=230&&(mx-mn)>=70;
+}
+function hlColor(r,g,b){
+if(r<g-40&&r<b-40)return 'cyan';
+if(b<r-40&&b<g-40)return 'yellow';
+if(g<r-40&&g<b-40)return 'pink';
+if(r<b-40&&b>=r&&g>=r)return 'cyan';
+if(r<g-40&&b<g-40)return 'green';
+return 'other';
+}
+function splitWords(str){
+var out=[],re=/\S+/g,m;
+while((m=re.exec(str)))out.push({s:m[0],i:m.index,e:m.index+m[0].length});
+return out;
+}
+async function pageWords(page,vp){
+var tc=await page.getTextContent();
+await page.getOperatorList();
+var fonts={},items=[];
+tc.items.forEach(function(it){
+if(!it.str||!it.str.trim())return;
+if(!(it.fontName in fonts)){
+var nm='';
+try{var f=page.commonObjs.get(it.fontName);nm=stripSubset(f&&(f.name||f.loadedName))}catch(e){}
+fonts[it.fontName]=nm;
+}
+if(fonts[it.fontName].charAt(0)==='.')return;
+var tx=it.transform,h=Math.abs(it.height)||Math.hypot(tx[2],tx[3])||10,x=tx[4],y=tx[5],w=it.width||(it.str.length*h*0.5);
+var top=vp.height-(y+h*0.85),bottom=vp.height-(y-h*0.2);
+var words=splitWords(it.str),n=Math.max(it.str.length,1);
+items.push({str:it.str,left:x,right:x+w,top:top,bottom:bottom,words:words.map(function(wd){return {s:wd.s,left:x+w*wd.i/n,right:x+w*wd.e/n,top:top,bottom:bottom,hl:false,col:''}})});
+});
+return items;
+}
+function markHighlights(items,img,scale){
+var W=img.width,H=img.height,d=img.data,total=0,hit=0,step=7;
+for(var i=0;i<W*H;i+=step){total++;var o=i*4;if(hlPix(d[o],d[o+1],d[o+2]))hit++}
+if(total&&hit/total>0.25)return 0;
+var n=0;
+items.forEach(function(it){
+it.words.forEach(function(w){
+var x0=Math.max(0,Math.floor(w.left*scale)),x1=Math.min(W,Math.ceil(w.right*scale)),y0=Math.max(0,Math.floor(w.top*scale)),y1=Math.min(H,Math.ceil(w.bottom*scale));
+if(x1<=x0||y1<=y0)return;
+var cnt=0,rowsOK=0,cr=0,cg=0,cb=0,wd=x1-x0;
+for(var y=y0;y<y1;y++){
+var rc=0;
+for(var x=x0;x<x1;x++){
+var o=(y*W+x)*4,r=d[o],g=d[o+1],b=d[o+2];
+if(hlPix(r,g,b)){rc++;cr+=r;cg+=g;cb+=b}
+}
+cnt+=rc;
+if(rc/wd>=0.35)rowsOK++;
+}
+if(cnt&&rowsOK>=Math.max(2,0.1*(y1-y0))){w.hl=true;w.col=hlColor(cr/cnt,cg/cnt,cb/cnt);n++}
+});
+});
+return n;
+}
+function buildLines(items){
+var its=items.slice().sort(function(a,b){return (a.top-b.top)||(a.left-b.left)});
+var lines=[];
+its.forEach(function(it){
+var h=it.bottom-it.top,cur=lines[lines.length-1];
+if(cur&&Math.abs(it.top-cur.top)<h*0.5)cur.items.push(it);
+else lines.push({top:it.top,items:[it]});
+});
+return lines.map(function(l){
+l.items.sort(function(a,b){return a.left-b.left});
+var ws=[];l.items.forEach(function(it){it.words.forEach(function(w){ws.push(w)})});
+var txt='',open=false;
+ws.forEach(function(w,i){
+if(w.hl&&!open){txt+=(i?' ':'')+'\u27e6'+w.s;open=true}
+else if(!w.hl&&open){txt+='\u27e7 '+w.s;open=false}
+else txt+=(i?' ':'')+w.s;
+});
+if(open)txt+='\u27e7';
+return {text:txt,words:ws};
+});
+}
+function drawImageObj(obj,env){
+var w=obj.width,h=obj.height,c=env.makeCanvas(w,h),ctx=c.getContext('2d');
+if(obj.bitmap){ctx.drawImage(obj.bitmap,0,0);return c}
+var d=obj.data;
+if(!d)return null;
+var img=ctx.createImageData(w,h),o=img.data;
+if(d.length===w*h*4)o.set(d);
+else if(d.length===w*h*3){for(var i=0,j=0;i<w*h;i++){o[j++]=d[i*3];o[j++]=d[i*3+1];o[j++]=d[i*3+2];o[j++]=255}}
+else return null;
+ctx.putImageData(img,0,0);
+return c;
+}
+function toSmallJpeg(src,env){
+var w=src.width,h=src.height,m=Math.max(w,h),k=m>640?640/m:1,w2=Math.round(w*k),h2=Math.round(h*k);
+var c=env.makeCanvas(w2,h2),ctx=c.getContext('2d');
+ctx.fillStyle='#fff';ctx.fillRect(0,0,w2,h2);
+ctx.drawImage(src,0,0,w2,h2);
+return env.toJpeg(c);
+}
+function getObj(page,id){
+var store=String(id).indexOf('g_')===0?page.commonObjs:page.objs;
+return new Promise(function(res){
+var done=false;
+var t=setTimeout(function(){if(!done){done=true;res(null)}},4000);
+try{store.get(id,function(o){if(!done){done=true;clearTimeout(t);res(o)}})}catch(e){if(!done){done=true;clearTimeout(t);res(null)}}
+});
+}
+async function pageImages(pdfjsLib,page,env,seen){
+var ops=await page.getOperatorList(),out=[];
+for(var i=0;i<ops.fnArray.length;i++){
+var fn=ops.fnArray[i];
+if(fn!==pdfjsLib.OPS.paintImageXObject&&fn!==pdfjsLib.OPS.paintJpegXObject)continue;
+var id=ops.argsArray[i][0];
+if(seen[id])continue;
+seen[id]=1;
+var obj=await getObj(page,id);
+if(!obj||!obj.width||!obj.height)continue;
+if(obj.width<150||obj.height<150)continue;
+try{
+var c=drawImageObj(obj,env);
+if(!c)continue;
+out.push({w:obj.width,h:obj.height,uri:toSmallJpeg(c,env)});
+}catch(e){}
+}
+return out;
+}
+async function extractPdf(pdfjsLib,data,env,onProgress,opts){
+opts=opts||{};
+var scale=opts.scale||1.5;
+var pdf=await pdfjsLib.getDocument({data:data,disableFontFace:true}).promise;
+var pages=[],images=[],seen={};
+for(var n=1;n<=pdf.numPages;n++){
+if(onProgress)onProgress(n,pdf.numPages);
+var page=await pdf.getPage(n);
+var vp=page.getViewport({scale:1}),vps=page.getViewport({scale:scale});
+var items=await pageWords(page,vp);
+var hlN=0;
+if(items.length){
+var c=env.makeCanvas(Math.ceil(vps.width),Math.ceil(vps.height)),ctx=c.getContext('2d');
+ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+await page.render({canvasContext:ctx,viewport:vps}).promise;
+var img=ctx.getImageData(0,0,c.width,c.height);
+hlN=markHighlights(items,img,scale);
+c.width=1;c.height=1;
+}
+var lines=buildLines(items);
+var pimgs=opts.noImages?[]:await pageImages(pdfjsLib,page,env,seen);
+var idx=[];
+pimgs.forEach(function(im){images.push(im.uri);idx.push(images.length-1)});
+pages.push({n:n,text:lines.map(function(l){return l.text}).join('\n'),hl:hlN,imgs:idx});
+if(page.cleanup)page.cleanup();
+}
+return {pages:pages,images:images};
+}
+return {extractPdf:extractPdf,stripSubset:stripSubset,hlPix:hlPix};
+})();
+
+</script>
 <script>
 (function(){
 'use strict';
-var D={subjects:[],lectures:[],questions:[],pending:[],decks:[],glossary:[]};
+var D={subjects:[],lectures:[],questions:[],pending:[],decks:[],glossary:[],exams:[]};
 var I={
 check:'<path d="M20 6 9 17l-5-5"/>',x:'<path d="M18 6 6 18M6 6l12 12"/>',plus:'<path d="M5 12h14M12 5v14"/>',
 clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
@@ -120,6 +286,7 @@ books:'<path d="M4 19.5V4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/
 repeat:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M3 21v-5h5"/>',
 layers:'<path d="m12 2 10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5"/>',
 file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"/>',
+underline:'<path d="M6 4v6a6 6 0 0 0 12 0V4M4 20h16"/>',
 copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'
 };
@@ -132,8 +299,8 @@ function idb(){return new Promise(function(res,rej){try{var q=indexedDB.open('st
 function idbGet(k){return idb().then(function(db){return new Promise(function(res,rej){var r=db.transaction('kv').objectStore('kv').get(k);r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}})})}
 function idbSet(k,v){return idb().then(function(db){return new Promise(function(res,rej){var tx=db.transaction('kv','readwrite');tx.objectStore('kv').put(v,k);tx.oncomplete=function(){res()};tx.onerror=function(){rej(tx.error)}})})}
 function mergeBy(a,b){var m={},o=[];a.concat(b).forEach(function(x){if(!(x.id in m))o.push(x.id);m[x.id]=x});return o.map(function(k){return m[k]})}
-function norm(p){return {subjects:p.subjects||[],lectures:p.lectures||[],questions:p.questions||[],pending:p.pending||[],decks:p.decks||[],glossary:p.glossary||[]}}
-function merge(a,b){var s=a.subjects.slice();(b.subjects||[]).forEach(function(x){if(s.indexOf(x)<0)s.push(x)});return {subjects:s,lectures:mergeBy(a.lectures,b.lectures||[]),questions:mergeBy(a.questions,b.questions||[]),pending:mergeBy(a.pending,b.pending||[]),decks:mergeBy(a.decks,b.decks||[]),glossary:mergeBy(a.glossary||[],b.glossary||[])}}
+function norm(p){return {subjects:p.subjects||[],lectures:p.lectures||[],questions:p.questions||[],pending:p.pending||[],decks:p.decks||[],glossary:p.glossary||[],exams:p.exams||[]}}
+function merge(a,b){var s=a.subjects.slice();(b.subjects||[]).forEach(function(x){if(s.indexOf(x)<0)s.push(x)});return {subjects:s,lectures:mergeBy(a.lectures,b.lectures||[]),questions:mergeBy(a.questions,b.questions||[]),pending:mergeBy(a.pending,b.pending||[]),decks:mergeBy(a.decks,b.decks||[]),glossary:mergeBy(a.glossary||[],b.glossary||[]),exams:mergeBy(a.exams||[],b.exams||[])}}
 var impMsg='';
 function afterImport(){renderHome();show(tab)}
 $('fi').addEventListener('change',function(e){
@@ -162,7 +329,7 @@ setTimeout(function(){URL.revokeObjectURL(url)},4000);
 return Promise.resolve();
 }
 function boot(){
-idbGet('pack').then(function(p){if(p){D=norm(p);buildIndex()}}).catch(function(){}).then(function(){
+idbGet('pack').then(function(p){if(p){D=norm(p);buildIndex()}}).catch(function(){}).then(function(){return idbGet('job').then(function(j){if(j&&j.pages&&j.stage!=='done'){pj=j;if(pj.stage==='run')pj.stage='ready';procOpen=true}}).catch(function(){})}).then(function(){
 migrate();renderHome();show(0);
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(function(){});
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){});
@@ -170,7 +337,7 @@ if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceW
 }
 
 var KEY='studyapp.v1';
-var st={ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[]};
+var st={ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[],sp:{}};
 try{var raw=localStorage.getItem(KEY);if(raw){var o=JSON.parse(raw);for(var k in o)st[k]=o[k]}}catch(e){}
 var dbDoc=null,saveT=null;
 function save(){
@@ -186,7 +353,7 @@ function lecsOf(s){return D.lectures.filter(function(l){return l.subject===s})}
 function lecById(id){return D.lectures.filter(function(l){return l.id===id})[0]}
 function asgOf(s){if(!st.asg[s])st.asg[s]={w:{},e:{}};return st.asg[s]}
 function migrate(){
-st.lw=st.lw||{};st.names=st.names||{};st.qlec=st.qlec||{};
+st.lw=st.lw||{};st.names=st.names||{};st.qlec=st.qlec||{};st.sp=st.sp||{};
 for(var s in (st.asg||{})){var w=st.asg[s].w||{};for(var k in w){if(!st.lw[w[k]])st.lw[w[k]]=+k}st.asg[s].w={}}
 }
 function lname(l){var n=st.names[l.id];return (n&&n.t)||l.title}
@@ -218,6 +385,19 @@ $('main').scrollTop=0;
 }
 function renderAll(){renderHome();if(tab===1)renderNotes();if(tab===2)startQuiz(false);if(tab===3)renderCards();show(tab)}
 
+function spOf(s){
+var o=st.sp[s]||(st.sp[s]={});
+if(o.q===undefined)o.q=true;
+if(o.c===undefined)o.c=true;
+if(o.note===undefined)o.note='';
+return o;
+}
+function spHTML(){
+var s=curSub();
+if(!s)return '';
+var o=spOf(s);
+return '<div class="lbl">'+esc(s)+' 학습 방식</div><textarea id="spn" rows="4" placeholder="이 과목에서 원하는 정리 방식을 적어두세요. 예: 구조물 이름과 위치를 중요하게 정리해줘. 기전은 단계별로, 시험에 나오는 수치는 빠짐없이.">'+esc(o.note)+'</textarea><div style="display:flex;gap:16px;margin:8px 0 4px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="spq"'+(o.q?' checked':'')+'> 문제 만들기</label><label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="spc"'+(o.c?' checked':'')+'> 빈칸 카드 만들기</label></div><div class="note">다음 PDF 처리부터 이 과목에 반영돼요. 이미 정리한 강의는 바뀌지 않아요.</div>';
+}
 var ren=null;
 function renderHome(){
 var h='';
@@ -227,7 +407,7 @@ var s=curSub(),lecs=lecsOf(s).sort(lsort),a=asgOf(s),ws={};
 lecs.forEach(function(l){if(wkOf(l))ws[wkOf(l)]=1});
 h+='<div class="chips">'+subs().map(function(x,i){return '<button class="chip'+(i===st.cur?' on':'')+'" data-s="'+i+'">'+esc(x)+'</button>'}).join('')+'</div>';
 h+='<div style="display:flex;gap:6px;margin:8px 0 0"><input id="sn" type="text" placeholder="새 과목 이름" style="flex:1"><button class="btn" id="sa">과목 추가</button></div><div class="err" id="se"></div>';
-h+='<div class="met"><div><small>강의록 주차</small><b>'+Object.keys(ws).length+' / 15</b></div><div><small>족보 연결</small><b>'+Object.keys(a.e).length+' / 13</b></div></div>';
+h+='<div class="met"><div><small>강의록 주차</small><b>'+Object.keys(ws).length+' / 15</b></div><div><small>족보 연결</small><b>'+examSlots(s)+' / 13</b></div></div>';
 h+='<div class="lbl">정리된 강의</div>';
 if(!lecs.length)h+='<div class="note">아직 정리된 강의가 없어요.</div>';
 lecs.forEach(function(l){
@@ -246,6 +426,8 @@ h+='<div class="lbl">족보 · 학번별</div><div style="display:grid;grid-temp
 h+='<div class="yl">17학번 이전</div><div style="grid-column:span 2;display:grid">'+cell('e','17-이전','')+'</div>';
 h+='<div class="yl" style="margin-top:6px">기타</div><div style="grid-column:span 2;display:grid;margin-top:6px">'+cell('e','기타','')+'</div></div>';
 if(slot&&slot.k==='e')h+=panel();
+h+=spHTML();
+h+=procHTML();
 h+='<div class="lbl">자료</div><button class="btn full" id="imp">'+ic('upload',16)+' 자료 불러오기</button><div class="note" style="margin-top:6px">같은 강의를 다시 불러오면 새 내용으로 바뀌고, 하이라이트와 메모는 그대로 남아요.</div>';
 h+='<div class="lbl">백업</div><div style="display:flex;gap:6px"><button class="btn" id="bk" style="flex:1">'+ic('download',16)+' 백업 내보내기</button><button class="btn" id="br" style="flex:1">'+ic('upload',16)+' 백업 불러오기</button></div>';
 if(bkMsg)h+='<div class="note" style="margin-top:6px;color:var(--acc)">'+esc(bkMsg)+'</div>';
@@ -269,7 +451,7 @@ var p=String(id).split('-');return p[0]+'학번 '+p[1]+' 족보';
 function cell(k,id,label){
 var on=slot&&slot.k===k&&String(slot.id)===String(id),d=false;
 if(k==='w')d=lecsOf(curSub()).some(function(l){return wkOf(l)===+id});
-else d=!!asgOf(curSub()).e[id];
+else d=(D.exams||[]).some(function(e){return e.subject===curSub()&&e.slot===id});
 return '<button class="cell'+(d?' d':'')+(on?' on':'')+'" data-k="'+k+'" data-id="'+id+'" aria-label="'+titleOf(k,id)+(d?', 연결됨':', 비어 있음')+'">'+(label?'<span>'+label+'</span>':'')+'<span>'+ic(d?'check':'plus',16)+'</span></button>';
 }
 function panel(){
@@ -281,16 +463,15 @@ here.forEach(function(l){h+='<div class="row" style="border-top:none;padding:6px
 if(others.length)h+='<div class="note" style="margin:8px 0 4px">이 주차에 연결하기</div>';
 others.forEach(function(l){h+='<button class="btn full" style="margin:0 0 6px;text-align:left" data-link="'+l.id+'">'+esc(ldisp(l))+' <span class="src">'+wlabel(wkOf(l))+'</span></button>'});
 }else{
-h+='<div class="note">정리된 족보가 아직 없어요. 족보를 처리하면 문제가 강의 범위에 맞춰 주차별로 들어가고, 범위 밖 문제는 따로 모여요.</div>';
+h+=examPanel();
 }
-h+='<button class="btn full" id="ph" style="margin-top:8px">'+ic('upload',16)+' 새 파일 올리기</button>';
-if(hint)h+='<div class="note" style="margin-top:8px">이 버전에는 앱 안에서 PDF를 처리하는 기능이 아직 없어요. 채팅에서 파일을 보내주시면 정리본, 문제, 카드를 만들어 이 앱에 넣어드려요.</div>';
+if(slot.k==='w')h+='<button class="btn full" id="ph" style="margin-top:8px">'+ic('upload',16)+' 이 주차에 강의록 PDF 올리기</button>';
 return h+'</div>';
 }
 $('p0').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
 if(t.id==='bk'){exportBackup().then(function(){renderHome()});return}
-if(t.id==='br'){$('fb').click();return}
+if(t.id==='br'){$('fbk').click();return}
 if(t.id==='brn'){bkPend=null;renderHome();return}
 if(t.id==='bry'){st=Object.assign(freshState(),bkPend);migrate();save();bkPend=null;bkMsg='백업으로 바꿨어요. ('+bkSummary(st)+')';renderHome();return}
 if(t.dataset.pv){localStorage.setItem('studyapp.aiprov',t.dataset.pv);akMsg='';renderHome();return}
@@ -303,12 +484,28 @@ akMsg='저장했어요. 연결 시험을 눌러 확인해보세요.';renderHome(
 }
 if(t.id==='akd'){localStorage.removeItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey');akMsg='키를 삭제했어요.';renderHome();return}
 if(t.id==='akt'){akMsg='시험 중…';renderHome();aiCall('짧게 답해.','한국어로 \u201c연결됨\u201d이라고만 답해.',20).then(function(){akMsg='연결됐어요.';renderHome()}).catch(function(er){akMsg=aiErr(er);renderHome()});return}
+if(t.id==='pp'){pmode='lec';procOpen=true;if(!pform.subject)pform.subject=curSub();renderHome();return}
+if(t.id==='pe'){pmode='exam';pslot=slot.id;procOpen=true;pform.name=titleOf('e',slot.id);pform.subject=curSub();pfile=null;pmsg='';renderHome();setTimeout(function(){var el=$('pf');if(el&&el.scrollIntoView)el.scrollIntoView({block:'center'})},0);return}
+if(t.id==='pgorev'){pdone=null;procOpen=false;show(2);return}
+if(t.dataset.eren){renE=t.dataset.eren;renderHome();return}
+if(t.dataset.ercancel){renE=null;renderHome();return}
+if(t.dataset.ersave){var en=$('ern').value.trim();if(!en){$('ere').textContent='이름을 입력하세요';return}st.names[t.dataset.ersave]={t:en,p:''};renE=null;save();renderHome();return}
+if(t.dataset.edel){delE=t.dataset.edel;renderHome();return}
+if(t.dataset.edelno){delE=null;renderHome();return}
+if(t.dataset.edelok){deleteExam(t.dataset.edelok);return}
+if(t.id==='pf'){$('fp').click();return}
+if(t.id==='pread'){startRead();return}
+if(t.id==='pgo'){startRun();return}
+if(t.id==='pstop'){pstop=true;setProg('멈추는 중…',-1);return}
+if(t.id==='pcx'){discardJob();return}
+if(t.id==='pdone'){pdone=null;procOpen=false;renderHome();return}
+if(t.dataset.popen){st.lec[curSub()]=t.dataset.popen;save();pdone=null;procOpen=false;show(1);return}
 if(t.id==='imp'){$('fi').click();return}
 if(t.dataset.s!==undefined){st.cur=+t.dataset.s;slot=null;hint=false;ren=null;save();renderHome();$('ttl').textContent='과목';return}
 if(t.id==='sa'){var v=$('sn').value.trim();if(!v){$('se').textContent='과목 이름을 입력하세요';return}st.extra=(st.extra||[]).concat([v]);st.cur=subs().length-1;slot=null;save();renderHome();return}
 if(t.dataset.k){var id=t.dataset.k==='w'?+t.dataset.id:t.dataset.id;slot=(slot&&slot.k===t.dataset.k&&String(slot.id)===String(id))?null:{k:t.dataset.k,id:id};hint=false;renderHome();return}
 if(t.id==='pc'){slot=null;renderHome();return}
-if(t.id==='ph'){hint=true;renderHome();return}
+if(t.id==='ph'){pmode='lec';procOpen=true;pform.week=String(slot.id);pform.subject=curSub();renderHome();setTimeout(function(){var el=$('pf');if(el&&el.scrollIntoView)el.scrollIntoView({block:'center'})},0);return}
 if(t.dataset.link){st.lw[t.dataset.link]=slot.id;save();renderHome();return}
 if(t.dataset.unlink){delete st.lw[t.dataset.unlink];save();renderHome();return}
 if(t.dataset.ren){ren=t.dataset.ren;renderHome();return}
@@ -316,9 +513,13 @@ if(t.dataset.rcancel){ren=null;renderHome();return}
 if(t.dataset.rsave){var nm=$('rn').value.trim();if(!nm){$('re').textContent='이름을 입력하세요';return}st.names[t.dataset.rsave]={t:nm,p:$('rp').value.trim()};ren=null;save();renderHome();return}
 if(t.dataset.open){st.lec[curSub()]=t.dataset.open;save();show(1);return}
 });
-$('p0').addEventListener('input',function(e){if(e.target.id==='sn')$('se').textContent=''});
+$('p0').addEventListener('input',function(e){if(e.target.id==='sn')$('se').textContent='';if(e.target.id==='spn'){spOf(curSub()).note=e.target.value;save()}if(e.target.id==='pn')pform.name=e.target.value;if(e.target.id==='pr')pform.prof=e.target.value});
 $('p0').addEventListener('change',function(e){
 var pvc=aiProv();
+if(e.target.id==='spq'){spOf(curSub()).q=e.target.checked;save()}
+if(e.target.id==='spc'){spOf(curSub()).c=e.target.checked;save()}
+if(e.target.id==='pw')pform.week=e.target.value;
+if(e.target.id==='ps')pform.subject=e.target.value;
 if(e.target.id==='am'){var mk=pvc==='openai'?'studyapp.oamodel':'studyapp.aimodel',mv=e.target.value.trim();if(mv)localStorage.setItem(mk,mv);else localStorage.removeItem(mk)}
 if(e.target.id==='ab'){var bv=e.target.value.trim();if(bv)localStorage.setItem('studyapp.oabase',bv);else localStorage.removeItem('studyapp.oabase')}
 });
@@ -364,6 +565,13 @@ el.querySelector('.txt').innerHTML=sentHTML(sid,it.t);
 el.querySelector('.memos').innerHTML=memosHTML(sid);
 counts();showAll();
 }
+var jbOnly=false;
+function applyJb(){
+var b=$('jbf');
+if(b){b.style.background=jbOnly?'color-mix(in srgb,#7F77DD 30%,transparent)':'';b.style.color=jbOnly?'var(--tx)':''}
+document.querySelectorAll('#nb .sn').forEach(function(sn){sn.style.display=(jbOnly&&!sn.querySelector('.txt.jb'))?'none':''});
+document.querySelectorAll('#nb .ph').forEach(function(ph){ph.style.display=(jbOnly&&!ph.querySelector('b.jb'))?'none':''});
+}
 function lecOptions(lecs,want){
 var g={};
 lecs.forEach(function(l){var w=wkOf(l);(g[w]||(g[w]=[])).push(l)});
@@ -376,7 +584,7 @@ var want=st.lec[s];
 if(!lecById(want)||lecById(want).subject!==s)want=lecs[0].id;
 curLecId=want;st.lec[s]=want;
 var lec=lecById(want),wk=wkOf(lec);
-h+='<div style="display:flex;gap:6px;align-items:center;margin:4px 0 6px"><select id="ls" style="flex:1">'+lecOptions(lecs,want)+'</select><button class="btn" id="ma" style="display:none"></button></div>';
+h+='<div style="display:flex;gap:6px;align-items:center;margin:4px 0 6px"><select id="ls" style="flex:1">'+lecOptions(lecs,want)+'</select><button class="btn" id="jbf" aria-label="밑줄 친 것만 보기">'+ic('underline',16)+'</button><button class="btn" id="ma" style="display:none"></button></div>';
 h+='<div style="display:flex;gap:8px;align-items:center;margin:0 0 6px"><span class="note">주차</span><select id="ws"><option value="0">미지정</option>';
 for(var i=1;i<=15;i++)h+='<option value="'+i+'"'+(i===wk?' selected':'')+'>'+i+'주차</option>';
 h+='</select></div>';
@@ -384,15 +592,15 @@ h+='<div id="nb"><div id="tb"></div>';
 lec.sections.forEach(function(sec){
 h+='<h3>'+esc(sec.h)+'</h3>';
 sec.items.forEach(function(it){
-h+='<div class="sn" data-sid="'+it.id+'"><p class="txt">'+sentHTML(it.id,it.t)+'</p>'+(it.x?'<div class="xn">※ '+esc(it.x)+'</div>':'')+'<span class="src">슬라이드 '+esc(it.src)+'</span><div class="memos">'+memosHTML(it.id)+'</div></div>';
+h+='<div class="sn" data-sid="'+it.id+'"><p class="txt'+(it.j&&it.j.length?' jb':'')+'">'+sentHTML(it.id,it.t)+'</p>'+(it.x?'<div class="xn">※ '+esc(it.x)+'</div>':'')+'<span class="src">슬라이드 '+esc(it.src)+'</span><div class="memos">'+memosHTML(it.id)+'</div></div>';
 });
 (sec.photos||[]).forEach(function(ph){
-h+='<div class="ph"><img src="'+ph.img+'" alt="'+esc(ph.ans)+'"><div class="cap"><b style="font-weight:500">'+esc(ph.ans)+'</b> <span class="src">슬라이드 '+esc(ph.src)+'</span><ul>'+ph.feat.map(function(f){return '<li>'+f+'</li>'}).join('')+'</ul></div></div>';
+h+='<div class="ph"><img src="'+ph.img+'" alt="'+esc(ph.ans)+'"><div class="cap"><b style="font-weight:500" class="'+(ph.j&&ph.j.length?'jb':'')+'">'+esc(ph.ans)+'</b>'+(ph.src&&ph.src!=='족보'?' <span class="src">슬라이드 '+esc(ph.src)+'</span>':'')+'<ul>'+ph.feat.map(function(f){return '<li>'+f+'</li>'}).join('')+'</ul></div></div>';
 });
 });
 h+='</div><div class="note" id="cnt" style="margin-top:14px"></div>';
 $('p1').innerHTML=h;
-counts();showAll();
+counts();showAll();applyJb();
 }
 function counts(){
 var l=lecById(curLecId);if(!l||!$('cnt'))return;
@@ -497,6 +705,8 @@ if(er&&er.code===401)return 'API 키가 맞지 않아요. 키를 다시 확인�
 if(er&&er.code===403)return '이 키로는 사용할 수 없어요. 키 권한을 확인해주세요.';
 if(er&&er.code===404)return '모델 이름이나 주소를 찾을 수 없어요. \u201cAI 연결\u201d에서 모델 이름과 중계 주소를 확인해주세요.';
 if(er&&er.code===429)return '요청이 너무 많아요. 잠시 후 다시 해보세요.';
+if(er&&er.code==='timeout')return '응답이 너무 오래 걸려요. 다시 시도해주세요.';
+if(er&&er.code==='json')return 'AI 답을 읽지 못했어요. 다시 시도해주세요.';
 if(er&&er.code)return '요청에 실패했어요 ('+er.code+'). '+(er.msg||'');
 if(aiProv()==='openai')return 'OpenAI로 연결하지 못했어요. 브라우저에서 직접 연결하는 게 막혔을 수 있어요. 그렇다면 중계 주소가 필요해요.';
 return '연결하지 못했어요. 인터넷 연결을 확인해주세요.';
@@ -675,6 +885,7 @@ if(e.target.id==='ls'){st.lec[curSub()]=e.target.value;save();pend=null;renderNo
 if(e.target.id==='ws'){var n=+e.target.value;if(n)st.lw[curLecId]=n;else delete st.lw[curLecId];save();pend=null;renderNotes()}
 });
 $('p1').addEventListener('click',function(e){
+if(e.target.closest('#jbf')){jbOnly=!jbOnly;applyJb();return}
 var b=e.target.closest('#ma');
 if(b){allOpen=!allOpen;document.querySelectorAll('#nb .mn').forEach(function(n){n.classList.toggle('o',allOpen)});showAll()}
 });
@@ -696,6 +907,12 @@ Object.keys(ws).map(Number).sort(function(a,b){return (a||99)-(b||99)}).forEach(
 if(out)o.push({k:'out',label:'범위 밖',n:out});
 return o;
 }
+function qplain(q){return String(q.q).replace(/\{\{c\d+::(.*?)\}\}/g,'$1')}
+function ratingHTML(q){
+var r=st.srs[q.id]||{ivl:0,due:0},sure=(r.ivl?Math.round(r.ivl*2.5):4)+'일 후';
+var cur=qLec(q),opts='<option value="">범위 바꾸기…</option>'+lecsOf(curSub()).sort(lsort).map(function(l){return '<option value="'+l.id+'"'+(l.id===cur?' disabled':'')+'>'+wlabel(wkOf(l))+' · '+esc(lname(l))+'</option>'}).join('')+'<option value="-"'+(cur?'':' disabled')+'>범위 밖</option>';
+return (q.type==='short'?'<div style="font-size:14px;line-height:1.7;background:var(--s1);border-radius:8px;padding:10px 12px;margin:0 0 10px"><b style="font-weight:500">모범 답안</b><br>'+esc(q.e)+'</div>':(q.e?'<div class="note" style="margin:0 0 8px">'+esc(q.e)+'</div>':''))+'<div style="display:flex;gap:8px;align-items:center;margin:0 0 10px"><select id="mv" style="flex:1">'+opts+'</select></div><div class="note" id="mvm" style="margin:-4px 0 8px;color:var(--ok)"></div><div class="note" style="margin:0 0 6px">얼마나 확실했나요?</div><div style="display:flex;gap:6px"><button class="rate" data-r="sure">확실<br><span class="note">'+sure+'</span></button><button class="rate" data-r="meh">애매<br><span class="note">1일 후</span></button><button class="rate" data-r="no">불확실<br><span class="note">10분 후</span></button></div>';
+}
 function startQuiz(all){
 ignoreDue=!!all;requeued={};qi=0;
 var sc=scopeOf();
@@ -714,12 +931,12 @@ function drawQuiz(){
 var el=$('p2'),all=qsOf(curSub());
 if(!all.length){el.innerHTML='<div class="note" style="margin-top:12px">이 과목에는 아직 문제가 없어요.</div>';return}
 var sc=scopeOf(),list=all.filter(function(q){return inScope(q,sc)});
-var head='<div style="margin:4px 0 8px"><select id="qsc" style="width:100%">'+scopeList().map(function(o){return '<option value="'+o.k+'"'+(o.k===sc?' selected':'')+'>'+o.label+' ('+o.n+'문제)</option>'}).join('')+'</select></div>';
+var head='<div style="margin:4px 0 8px"><select id="qsc" style="width:100%">'+scopeList().map(function(o){return '<option value="'+o.k+'"'+(o.k===sc?' selected':'')+'>'+o.label+' ('+o.n+'개)</option>'}).join('')+'</select></div>';
 if(qi>=QS.length){
 var now=Date.now(),next=null;
 list.forEach(function(q){var r=st.srs[q.id];if(r&&r.due>now&&(next===null||r.due<next))next=r.due});
 var h='<div style="font-size:16px;font-weight:500;margin:8px 0 4px">오늘 복습 끝</div><div class="note" style="margin:0 0 12px">'+(next?'다음 복습은 '+fmt(next-now)+'이에요.':'복습할 문제가 없어요.')+'</div>';
-list.forEach(function(q,i){var r=st.srs[q.id];h+='<div class="row" style="font-size:13px"><span style="min-width:0">'+(i+1)+'. '+esc(q.q.slice(0,22))+'…</span><span style="color:var(--acc);white-space:nowrap">'+(r?(r.due>now?fmt(r.due-now):'지금'):'아직')+'</span></div>'});
+list.forEach(function(q,i){var r=st.srs[q.id];h+='<div class="row" style="font-size:13px"><span style="min-width:0">'+(i+1)+'. '+esc(qplain(q).slice(0,22))+'…</span><span style="color:var(--acc);white-space:nowrap">'+(r?(r.due>now?fmt(r.due-now):'지금'):'아직')+'</span></div>'});
 if(list.length)h+='<button class="btn full" id="qa" style="margin-top:14px">전체 다시 풀기</button>';
 el.innerHTML=head+h;
 return;
@@ -727,8 +944,15 @@ return;
 var q=QS[qi],lec=lecById(qLec(q));
 var tag=q.exam?' · '+titleOf('e',q.exam):'';
 var h='<div class="note" style="margin:4px 0 6px">남은 카드 '+(QS.length-qi)+' · '+(lec?esc(lname(lec)):'범위 밖')+tag+'</div><div class="bar"><i style="width:'+Math.round(qi/QS.length*100)+'%"></i></div>';
+if(q.img)h+='<img src="'+q.img+'" alt="" style="width:100%;max-height:240px;object-fit:contain;background:var(--s1);border-radius:8px;margin:0 0 10px;display:block">';
+if(q.type==='short'){
+h+='<div style="font-size:16px;line-height:1.7;margin:0 0 12px">'+esc(q.q)+'</div><button class="btn full" id="rv">정답 보기</button>';
+}else if(q.type==='cloze'){
+h+='<div id="clz" style="font-size:16px;line-height:1.8;margin:0 0 12px">'+esc(q.q).replace(/\{\{c\d+::(.*?)\}\}/g,'<span class="clz">[ \u00b7\u00b7\u00b7 ]</span>')+'</div><button class="btn full" id="rv">정답 보기</button>';
+}else{
 h+='<div style="font-size:16px;line-height:1.6;margin:0 0 12px">'+esc(q.q)+'</div>';
 q.o.forEach(function(o,k){h+='<button class="opt" data-k="'+k+'">'+esc(o)+'</button>'});
+}
 h+='<div id="fb"></div>';
 el.innerHTML=head+h;answered=false;
 }
@@ -743,13 +967,21 @@ var m=$('mvm');if(m)m.textContent='옮겼어요. 다음 복습부터 새 범위�
 $('p2').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
 if(t.id==='qa'){startQuiz(true);return}
+if(t.id==='rv'&&!answered){
+answered=true;
+var cq=QS[qi];
+if($('clz'))$('clz').innerHTML=esc(cq.q).replace(/\{\{c\d+::(.*?)\}\}/g,'<b class="clz on">$1</b>');
+t.style.display='none';
+$('fb').innerHTML=ratingHTML(cq);
+return;
+}
 if(t.classList.contains('opt')&&!answered){
 answered=true;
 var q=QS[qi],k=+t.dataset.k;
 document.querySelectorAll('#p2 .opt').forEach(function(b){var n=+b.dataset.k;if(n===q.a)b.classList.add('ok');else if(n===k)b.classList.add('no')});
 var r=st.srs[q.id]||{ivl:0,due:0},sure=(r.ivl?Math.round(r.ivl*2.5):4)+'일 후';
 var cur=qLec(q),opts='<option value="">범위 바꾸기…</option>'+lecsOf(curSub()).sort(lsort).map(function(l){return '<option value="'+l.id+'"'+(l.id===cur?' disabled':'')+'>'+wlabel(wkOf(l))+' · '+esc(lname(l))+'</option>'}).join('')+'<option value="-"'+(cur?'':' disabled')+'>범위 밖</option>';
-$('fb').innerHTML='<div class="note" style="background:var(--s1);border-radius:8px;padding:10px 12px;margin:4px 0 10px;color:var(--tx)">'+(k===q.a?'정답. ':'오답. ')+esc(q.e)+'</div><div style="display:flex;gap:8px;align-items:center;margin:0 0 10px"><select id="mv" style="flex:1">'+opts+'</select></div><div class="note" id="mvm" style="margin:-4px 0 8px;color:var(--ok)"></div><div class="note" style="margin:0 0 6px">얼마나 확실했나요?</div><div style="display:flex;gap:6px"><button class="rate" data-r="sure">확실<br><span class="note">'+sure+'</span></button><button class="rate" data-r="meh">애매<br><span class="note">1일 후</span></button><button class="rate" data-r="no">불확실<br><span class="note">10분 후</span></button></div>';
+$('fb').innerHTML='<div class="note" style="background:var(--s1);border-radius:8px;padding:10px 12px;margin:4px 0 10px;color:var(--tx)">'+(q.a<0?'':(k===q.a?'정답. ':'오답. '))+esc(q.e)+'</div><div style="display:flex;gap:8px;align-items:center;margin:0 0 10px"><select id="mv" style="flex:1">'+opts+'</select></div><div class="note" id="mvm" style="margin:-4px 0 8px;color:var(--ok)"></div><div class="note" style="margin:0 0 6px">얼마나 확실했나요?</div><div style="display:flex;gap:6px"><button class="rate" data-r="sure">확실<br><span class="note">'+sure+'</span></button><button class="rate" data-r="meh">애매<br><span class="note">1일 후</span></button><button class="rate" data-r="no">불확실<br><span class="note">10분 후</span></button></div>';
 return;
 }
 if(t.classList.contains('rate')){
@@ -814,8 +1046,450 @@ else $('cm').textContent=copyTxt;
 $('p3').addEventListener('input',function(e){if(e.target.classList.contains('pa')){var m=$('pe-'+e.target.dataset.id);if(m)m.textContent=''}});
 $('nav').addEventListener('click',function(e){var b=e.target.closest('button');if(b)show(+b.dataset.t)});
 
+
+var procOpen=false,pj=null,pmsg='',pbusy=false,pstop=false,pfile=null,pdone=null,pform={name:'',prof:'',week:'0',subject:''},pwl=null;
+function acquireWake(){try{if(navigator.wakeLock)navigator.wakeLock.request('screen').then(function(l){pwl=l}).catch(function(){})}catch(e){}}
+function releaseWake(){try{if(pwl){pwl.release();pwl=null}}catch(e){}}
+var pdfLoad=null;
+function loadPdfjs(){
+if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
+if(pdfLoad)return pdfLoad;
+pdfLoad=new Promise(function(res,rej){
+var s=document.createElement('script');
+s.src='pdf.min.js';
+s.onload=function(){if(window.pdfjsLib){window.pdfjsLib.GlobalWorkerOptions.workerSrc='pdf.worker.min.js';res(window.pdfjsLib)}else{pdfLoad=null;rej(new Error('nolib'))}};
+s.onerror=function(){pdfLoad=null;rej(new Error('nofile'))};
+document.head.appendChild(s);
+});
+return pdfLoad;
+}
+function pdfEnv(){return {makeCanvas:function(w,h){var c=document.createElement('canvas');c.width=w;c.height=h;return c},toJpeg:function(c){return c.toDataURL('image/jpeg',0.72)}}}
+function mkChunks(pages){
+var chunks=[],cur=null;
+pages.forEach(function(p){
+var txt=(p.text||'').trim();
+if(txt.length<12)return;
+var piece='[p'+p.n+']\n'+txt;
+if(!cur||cur.chars+piece.length>9000||cur.pages.length>=8){cur={pages:[],chars:0,text:''};chunks.push(cur)}
+cur.pages.push(p.n);cur.chars+=piece.length;cur.text+=(cur.text?'\n\n':'')+piece;
+});
+return chunks.map(function(c){return {pages:c.pages,text:c.text}});
+}
+var PSYS='너는 한국 의대생을 위해 강의 슬라이드를 정리하는 도우미야. 입력은 강의 PDF의 일부 쪽에서 뽑은 글자야. \u27e6 \u27e7로 감싼 부분은 교수님이 강조한 내용(하이라이트)이야. 손글씨 필기는 이미 제거했어. 규칙: (1) 슬라이드에 있는 내용만 쓰고 새로운 사실을 더하지 마. (2) 강조 표시된 내용은 반드시 포함하고 표현을 최대한 그대로 유지해. (3) 정리 문장은 한 문장에 개념 하나만 담고, 영어 의학용어는 영어 그대로 두고 설명은 한국어로 써. (4) 문장마다 출처 쪽 번호를 붙여. (5) 소제목은 주제별로 묶어. (6) 출력은 JSON 하나만, 설명이나 코드블록 없이.';
+function chunkPrompt(job,ch){
+var heads=[],o=job.opts||{q:true,c:true,note:''};
+job.results.forEach(function(r){r.sections.forEach(function(s){if(heads.indexOf(s.h)<0)heads.push(s.h)})});
+var fmt='{"sections":[{"h":"소제목","items":[{"t":"정리 문장","src":"쪽 번호"}]}],"glossary":[{"t":"영어 용어","k":"한글 이름","d":"한 문장 설명","a":["동의어나 복수형"]}]';
+if(o.q!==false)fmt+=',"questions":[{"q":"문제","o":["선지","선지","선지","선지"],"a":0,"e":"해설","src":"쪽 번호"}]';
+if(o.c!==false)fmt+=',"cloze":[{"t":"핵심어를 {{c1::정답}} 형식으로 가린 문장","src":"쪽 번호"}]';
+fmt+='}';
+var extra='';
+if(o.q!==false)extra+='\n문제는 3~5개, 정답 위치(a)는 0~3 중 골고루 섞어.';
+if(o.c!==false)extra+='\n빈칸 문장은 4~8개, 슬라이드 내용 중 핵심 개념이 담긴 문장에서 한 문장에 빈칸 1~2개만 만들고 정답은 {{c1::…}} 형식으로 표시해.';
+extra+='\n용어는 학생이 모를 만한 것만 최대 12개.';
+var pref=o.note&&o.note.trim()?'\n\n이 과목에 대한 학생의 요청(위 규칙과 충돌하지 않는 범위에서 반영해): '+o.note.trim():'';
+return '강의: '+job.name+(job.prof?' ('+job.prof+')':'')+'\n이전에 만든 소제목: '+(heads.length?heads.slice(-12).join(' / '):'없음')+pref+'\n\n슬라이드 글자:\n'+ch.text+'\n\n위 규칙대로 JSON 하나만 출력해. 형식:\n'+fmt+extra;
+}
+function withTimeout(p,ms){return new Promise(function(res,rej){var t=setTimeout(function(){rej({code:'timeout'})},ms);p.then(function(v){clearTimeout(t);res(v)},function(e){clearTimeout(t);rej(e)})})}
+function parseJson(s){
+s=String(s||'').replace(/```json|```/g,'');
+var a=s.indexOf('{'),b=s.lastIndexOf('}');
+if(a<0||b<=a)return null;
+try{return JSON.parse(s.slice(a,b+1))}catch(e){return null}
+}
+function aiJson(prompt,sys){
+function once(extra){return withTimeout(aiCall(sys||PSYS,prompt+(extra||''),6500),170000).then(function(txt){var j=parseJson(txt);if(!j)throw {code:'json'};return j})}
+return once().catch(function(er){if(er&&er.code==='json')return once('\n\n반드시 유효한 JSON 하나만 출력해. 설명이나 코드블록은 쓰지 마.');throw er});
+}
+function cleanRes(r){
+var out={sections:[],glossary:[],questions:[],cloze:[]};
+((r&&r.sections)||[]).forEach(function(s){
+if(!s||typeof s!=='object')return;
+var items=[];
+(s.items||[]).forEach(function(it){if(it&&typeof it.t==='string'&&it.t.trim())items.push({t:it.t.trim(),src:String(it.src||'').replace(/[^0-9\-, ]/g,'').trim()})});
+if(items.length)out.sections.push({h:String(s.h||'기타').trim()||'기타',items:items});
+});
+((r&&r.glossary)||[]).forEach(function(g){if(g&&g.t&&g.d)out.glossary.push({t:String(g.t).trim(),k:String(g.k||'').trim(),d:String(g.d).trim(),a:Array.isArray(g.a)?g.a.map(String):[]})});
+((r&&r.questions)||[]).forEach(function(q){if(q&&q.q&&Array.isArray(q.o)&&q.o.length===4&&Number.isInteger(q.a)&&q.a>=0&&q.a<4)out.questions.push({q:String(q.q),o:q.o.map(String),a:q.a,e:String(q.e||''),src:String(q.src||'')})});
+((r&&r.cloze)||[]).forEach(function(c){if(c&&typeof c.t==='string'&&/\{\{c\d+::.+?\}\}/.test(c.t))out.cloze.push({t:c.t.trim(),src:String(c.src||'').replace(/[^0-9\-, ]/g,'').trim()})});
+return out;
+}
+function setProg(msg,pct){
+pmsg=msg;
+var m=$('pg');if(m)m.textContent=msg;
+var b=$('pgb');if(b)b.style.width=(pct>=0?Math.round(pct*100):0)+'%';
+}
+function startRead(){
+if(pbusy)return;
+if(!pfile){pmsg='PDF를 먼저 고르세요.';renderHome();return}
+var nm=(pform.name||'').trim();
+if(!nm){pmsg='강의 이름을 입력하세요.';renderHome();return}
+pbusy=true;pmsg='읽는 중…';renderHome();
+loadPdfjs().then(function(lib){
+return pfile.arrayBuffer().then(function(buf){return PDFPROC.extractPdf(lib,new Uint8Array(buf),pdfEnv(),function(n,N){setProg('읽는 중 '+n+' / '+N+'쪽',n/N)})});
+}).then(function(r){
+pj={lid:'u'+Date.now().toString(36),name:nm,prof:(pform.prof||'').trim(),week:+pform.week||0,subject:pform.subject||curSub(),pages:r.pages,images:r.images,chunks:(pmode==='exam'?mkExamChunks(r.pages):mkChunks(r.pages)),mode:pmode,slot:pslot,eid:'x'+Date.now().toString(36),eres:[],opts:JSON.parse(JSON.stringify(spOf(pform.subject||curSub()))),results:[],done:0,stage:'ready',error:''};
+pbusy=false;pmsg='';
+return idbSet('job',pj).catch(function(){}).then(function(){renderHome()});
+}).catch(function(er){
+pbusy=false;
+pmsg=(er&&(er.message==='nofile'||er.message==='nolib'))?'pdf.min.js와 pdf.worker.min.js를 저장소에 올려야 PDF를 읽을 수 있어요.':'PDF를 읽지 못했어요. 암호가 걸렸거나 손상된 파일일 수 있어요.';
+renderHome();
+});
+}
+var pmode='lec',pslot='',renE=null,delE=null,MINSC=4;
+function examSlots(s){var m={};(D.exams||[]).forEach(function(e){if(e.subject===s)m[e.slot]=1});return Object.keys(m).length}
+var STOPW={};'the and with from that this are for not can may has have into than then there which when where what how why was were been being its their also each both only more most less describe explain following below above between within without about other such these those they them will would should could any all one two three four'.split(' ').forEach(function(w){STOPW[w]=1});
+function toks(s){
+s=String(s).toLowerCase();
+var out=[];
+(s.match(/[a-z][a-z0-9\-]{2,}/g)||[]).forEach(function(w){if(!STOPW[w])out.push(w)});
+(s.match(/[\uac00-\ud7a3]{2,}/g)||[]).forEach(function(w){for(var i=0;i<w.length-1;i++)out.push(w.slice(i,i+2))});
+return out;
+}
+function buildIdx(subject){
+var sents=[],df={};
+lecsOf(subject).forEach(function(l){l.sections.forEach(function(sec){sec.items.forEach(function(it){
+var set={};toks(it.t).forEach(function(x){set[x]=1});
+sents.push({id:it.id,lec:l.id,t:it.t,set:set});
+for(var k in set)df[k]=(df[k]||0)+1;
+})})});
+var N=sents.length||1;
+return {sents:sents,idf:function(x){var c=df[x]||0;if(c>5&&c/N>0.12)return 0;return Math.log(1+N/(c||0.5))}};
+}
+function candOf(idx,q){
+var qs={};
+toks(q.q+' '+(q.o||[]).join(' ')+' '+(q.ans||'')).forEach(function(x){qs[x]=1});
+var sc=[];
+idx.sents.forEach(function(s){var v=0;for(var x in qs)if(s.set[x])v+=idx.idf(x);if(v>0)sc.push({s:s,v:v})});
+sc.sort(function(a,b){return b.v-a.v});
+return sc.slice(0,8);
+}
+var ESYS='너는 시험 족보 PDF에서 문제를 옮겨 적는 도우미야. 입력은 한 족보의 일부 쪽에서 뽑은 글자야. 문제를 하나씩 원문 그대로 옮기고 내용을 바꾸거나 요약하지 마. 객관식이면 선지를 그대로 옮기고, 주관식이면 선지는 빈 배열로 둬. 정답표나 정답이 적혀 있으면 반영하고 없으면 null이나 빈 문자열로 둬. 문제가 사진이나 그림을 보라고 하면 needsImage를 true로 해. 문제가 아닌 안내 문구는 무시해. 출력은 JSON 하나만, 설명이나 코드블록 없이.';
+var MSYS='너는 시험 문제가 어느 강의 범위인지 판단하는 도우미야. 후보 문장 중에 문제의 근거가 되는 것이 있으면 그 강의 id와 근거 문장 id를 골라. 근거가 없으면 lec를 빈 문자열로 해. 주관식 모범 답안은 후보 문장에 있는 내용만 사용해서 쓰고 새로운 사실을 지어내지 마. 객관식 정답은 후보 문장으로 판단할 수 있을 때만 골라. 출력은 JSON 하나만, 설명이나 코드블록 없이.';
+function mkExamChunks(pages){
+var chunks=[],cur=null;
+pages.forEach(function(p){
+var txt=(p.text||'').trim();
+if(txt.length<4)return;
+var piece='[p'+p.n+']'+(p.imgs.length?' (사진 '+p.imgs.length+'개)':'')+'\n'+txt;
+if(!cur||cur.chars+piece.length>7000||cur.pages.length>=6){cur={pages:[],chars:0,text:''};chunks.push(cur)}
+cur.pages.push(p.n);cur.chars+=piece.length;cur.text+=(cur.text?'\n\n':'')+piece;
+});
+return chunks.map(function(c){return {pages:c.pages,text:c.text}});
+}
+function examParsePrompt(job,ch){
+return '족보: '+job.name+'\n\n'+ch.text+'\n\n형식:\n{"questions":[{"no":"문제 번호","type":"mcq 또는 short","q":"문제 원문","o":["선지1","선지2"],"a":정답 번호(0부터, 모르면 null),"ans":"주관식 정답이 적혀 있으면 그대로, 없으면 빈 문자열","needsImage":false,"src":"쪽 번호"}]}';
+}
+function cleanExam(r){
+var out=[];
+((r&&r.questions)||[]).forEach(function(q){
+if(!q||typeof q.q!=='string'||q.q.trim().length<3)return;
+var o=Array.isArray(q.o)?q.o.map(String).filter(function(x){return x.trim()}):[];
+var type=(q.type==='mcq'&&o.length>=2)?'mcq':'short';
+if(type==='short')o=[];
+var a=Number.isInteger(q.a)&&q.a>=0&&q.a<o.length?q.a:null;
+out.push({no:String(q.no||''),type:type,q:q.q.trim(),o:o,a:a,ans:String(q.ans||'').trim(),needsImage:!!q.needsImage,src:String(q.src||'').replace(/[^0-9]/g,'')});
+});
+return out;
+}
+function matchPrompt(job,ids){
+var h='아래 각 문제가 이미 정리된 강의 범위 안인지 판단해줘. 후보 문장은 정리된 강의에서 비슷한 것을 미리 골라둔 거야.\n';
+ids.forEach(function(id){
+var q=job.qs.filter(function(x){return x.id===id})[0];
+h+='\n[문제 '+id+'] ('+(q.type==='mcq'?'객관식':'주관식')+') '+q.q+(q.o.length?'\n선지: '+q.o.map(function(o,i){return (i+1)+') '+o}).join(' / '):'')+(q.ans?'\n적혀 있는 정답: '+q.ans:'')+'\n후보 문장:\n';
+q.cands.forEach(function(c){var l=lecById(c.lec);h+='- [문장 '+c.id+' | 강의 '+c.lec+'] ('+(l?lname(l):'')+') '+c.t+'\n'});
+});
+return h+'\n형식:\n{"results":[{"id":"문제 id","lec":"근거가 있는 강의 id, 없으면 빈 문자열","support":["근거 문장 id"],"answer":"주관식이면 근거 문장만 써서 만든 모범 답안 1~3문장, 근거가 없으면 빈 문자열","a":객관식이면 근거로 판단한 정답 번호(0부터), 모르면 null}]}';
+}
+function runExam(){
+pbusy=true;pstop=false;pj.stage='run';pj.error='';pmsg='';
+acquireWake();renderHome();
+function saveJob(){return idbSet('job',pj).catch(function(){})}
+function parseStep(){
+if(pstop)return Promise.resolve('stop');
+if(pj.done>=pj.chunks.length)return Promise.resolve('parsed');
+var i=pj.done;
+setProg('문제 읽는 중 '+(i+1)+' / '+pj.chunks.length,i/pj.chunks.length);
+return aiJson(examParsePrompt(pj,pj.chunks[i]),ESYS).then(function(j){pj.eres.push(cleanExam(j));pj.done++;return saveJob()}).then(parseStep);
+}
+function prep(){
+if(pj.qs)return;
+pj.qs=[];
+pj.eres.forEach(function(r){r.forEach(function(q){q.id=pj.eid+'-q'+(pj.qs.length+1);pj.qs.push(q)})});
+var idx=buildIdx(pj.subject),need=[];
+pj.qs.forEach(function(q){
+var c=candOf(idx,q);
+q.cands=c.map(function(x){return {id:x.s.id,lec:x.s.lec,t:x.s.t.slice(0,160)}});
+q.score=c.length?c[0].v:0;
+if(q.score>=MINSC)need.push(q.id);
+});
+pj.batches=[];
+for(var i=0;i<need.length;i+=6)pj.batches.push(need.slice(i,i+6));
+pj.mdone=0;pj.mres={};
+}
+function matchStep(){
+if(pstop)return Promise.resolve('stop');
+if(pj.mdone>=pj.batches.length)return Promise.resolve('end');
+var i=pj.mdone;
+setProg('범위 연결 중 '+(i+1)+' / '+pj.batches.length,(i)/pj.batches.length);
+return aiJson(matchPrompt(pj,pj.batches[i]),MSYS).then(function(j){
+((j&&j.results)||[]).forEach(function(r){if(r&&r.id)pj.mres[r.id]=r});
+pj.mdone++;return saveJob();
+}).then(matchStep);
+}
+parseStep().then(function(how){
+if(how==='stop')return how;
+return saveJob().then(function(){prep();return saveJob()}).then(matchStep);
+}).then(function(how){
+releaseWake();
+if(how==='stop'){pbusy=false;pj.stage='ready';pmsg='멈췄어요. 이어서 하려면 다시 시작을 누르세요.';return saveJob().then(renderHome)}
+return finishExam().then(function(){pbusy=false;renderHome()});
+}).catch(function(er){
+releaseWake();pbusy=false;pj.stage='ready';pj.error=aiErr(er);pmsg=pj.error+' (이어서 시작을 누르면 멈춘 곳부터 계속해요)';
+return saveJob().then(renderHome);
+});
+return;
+}
+function dhash(uri){
+return new Promise(function(res){
+var im=new Image();
+im.onload=function(){
+try{
+var c=document.createElement('canvas');c.width=9;c.height=8;
+var x=c.getContext('2d');x.drawImage(im,0,0,9,8);
+var d=x.getImageData(0,0,9,8).data,bits='';
+function g(i){return d[i*4]*0.3+d[i*4+1]*0.59+d[i*4+2]*0.11}
+for(var y=0;y<8;y++)for(var xx=0;xx<8;xx++)bits+=g(y*9+xx)>g(y*9+xx+1)?'1':'0';
+res(bits);
+}catch(e){res('')}
+};
+im.onerror=function(){res('')};
+im.src=uri;
+});
+}
+function hdist(a,b){if(!a||!b||a.length!==b.length)return 99;var n=0;for(var i=0;i<a.length;i++)if(a[i]!==b[i])n++;return n}
+function addExamPhoto(p,eid){
+var lec=p.lec,photos=[];
+lec.sections.forEach(function(s){(s.photos||[]).forEach(function(ph){photos.push(ph)})});
+return dhash(p.img).then(function(h){
+var chain=Promise.resolve(null);
+photos.forEach(function(ph){
+chain=chain.then(function(found){
+if(found)return found;
+return (ph.h?Promise.resolve(ph.h):dhash(ph.img).then(function(x){ph.h=x;return x})).then(function(hh){return hdist(h,hh)<=8?ph:null});
+});
+});
+return chain.then(function(found){
+if(found){found.j=found.j||[];if(found.j.indexOf(eid)<0)found.j.push(eid);return}
+var sec=p.sec||lec.sections[0];
+sec.photos=sec.photos||[];
+sec.photos.push({img:p.img,ans:'사진',feat:[],src:'족보',j:[eid],h:h});
+});
+});
+}
+function finishExam(){
+var job=pj,res=job.mres||{},items={};
+D.lectures.forEach(function(l){l.sections.forEach(function(sec){sec.items.forEach(function(it){items[it.id]={it:it,sec:sec,lec:l}})})});
+var recs=[],underl={},pjobs=[];
+job.qs.forEach(function(q){
+var r=res[q.id]||{},lecId='';
+var sup=(Array.isArray(r.support)?r.support:[]).filter(function(id){return items[id]});
+if(sup.length)lecId=items[sup[0]].lec.id;
+else if(r.lec&&D.lectures.some(function(l){return l.id===r.lec}))lecId=r.lec;
+var rec={id:q.id,lec:lecId,subject:job.subject,type:q.type,q:q.q,src:'exam',exam:job.slot,examId:job.eid};
+if(q.type==='mcq'){
+rec.o=q.o;
+var a=q.a!==null?q.a:(Number.isInteger(r.a)&&r.a>=0&&r.a<q.o.length?r.a:-1);
+rec.a=a;
+rec.e=(q.a===null&&a>=0)?'정답은 AI가 강의 내용으로 추정한 거예요.':(a<0?'정답 정보가 없어요.':'');
+}else{
+rec.e=q.ans||(typeof r.answer==='string'?r.answer.trim():'');
+if(!rec.e)rec.e='모범 답안을 만들 근거가 없어요.';
+}
+if(q.needsImage){var pg=job.pages[(parseInt(q.src,10)||0)-1];if(pg&&pg.imgs.length)rec.img=job.images[pg.imgs[0]]}
+recs.push(rec);
+if(lecId)sup.forEach(function(id){var m=items[id];if(m.lec.id===lecId){m.it.j=m.it.j||[];if(m.it.j.indexOf(job.eid)<0)m.it.j.push(job.eid);underl[id]=1}});
+if(rec.img&&lecId){
+var lec=D.lectures.filter(function(l){return l.id===lecId})[0];
+var sec=sup.length&&items[sup[0]]?items[sup[0]].sec:lec.sections[0];
+if(lec&&(sec||lec.sections[0]))pjobs.push({img:rec.img,lec:lec,sec:sec||lec.sections[0]});
+}
+});
+D.exams=(D.exams||[]).concat([{id:job.eid,subject:job.subject,slot:job.slot,title:job.name}]);
+D.questions=mergeBy(D.questions,recs);
+var chain=Promise.resolve();
+pjobs.forEach(function(p2){chain=chain.then(function(){return addExamPhoto(p2,job.eid)})});
+return chain.then(function(){
+var out=recs.filter(function(r){return !r.lec}).length,photos=recs.filter(function(r){return r.img}).length;
+pdone={exam:true,title:job.name,questions:recs.length,inScope:recs.length-out,out:out,underlined:Object.keys(underl).length,photos:photos};
+pj=null;procOpen=true;pmsg='';pfile=null;
+save();
+return idbSet('pack',D).then(function(){return idbSet('job',null)}).catch(function(){pmsg='정리는 끝났지만 이 기기에 저장하지 못했어요. 앱을 닫으면 사라질 수 있어요.'});
+});
+}
+function deleteExam(id){
+D.exams=(D.exams||[]).filter(function(e){return e.id!==id});
+D.questions=D.questions.filter(function(q){return q.examId!==id});
+D.lectures.forEach(function(l){l.sections.forEach(function(sec){
+sec.items.forEach(function(it){if(it.j){it.j=it.j.filter(function(x){return x!==id});if(!it.j.length)delete it.j}});
+sec.photos=(sec.photos||[]).filter(function(ph){
+if(ph.j){ph.j=ph.j.filter(function(x){return x!==id});if(!ph.j.length){delete ph.j;if(ph.src==='족보')return false}}
+return true;
+});
+})});
+delete st.names[id];
+delE=null;save();
+idbSet('pack',D).catch(function(){});
+renderHome();
+}
+function examPanel(){
+var s=curSub(),list=(D.exams||[]).filter(function(e){return e.subject===s&&e.slot===slot.id}),h='';
+if(!list.length)h+='<div class="note" style="margin:0 0 6px">이 칸에 정리된 족보가 아직 없어요.</div>';
+list.forEach(function(e){
+var qs=D.questions.filter(function(q){return q.examId===e.id}),out=qs.filter(function(q){return !qLec(q)}).length,nm=(st.names[e.id]&&st.names[e.id].t)||e.title;
+if(renE===e.id){
+h+='<div style="margin:6px 0"><input id="ern" type="text" value="'+esc(nm)+'" style="width:100%;margin:0 0 6px"><div class="err" id="ere"></div><div style="display:flex;gap:6px"><button class="btn pri" data-ersave="'+e.id+'">저장</button><button class="btn" data-ercancel="1">취소</button></div></div>';
+}else if(delE===e.id){
+h+='<div class="pn" style="margin:6px 0"><div class="note" style="margin:0 0 8px;color:var(--tx)">\u201c'+esc(nm)+'\u201d과 문제 '+qs.length+'개를 지울까요? 정리본의 밑줄도 사라져요.</div><div style="display:flex;gap:6px"><button class="btn" data-edelok="'+e.id+'">지우기</button><button class="btn" data-edelno="1">취소</button></div></div>';
+}else{
+h+='<div class="row" style="border-top:none;padding:6px 0"><span style="min-width:0">'+esc(nm)+'<br><span class="src">문제 '+qs.length+'개 · 범위 밖 '+out+'개</span></span><span style="display:flex;gap:6px"><button class="btn" data-eren="'+e.id+'" aria-label="이름 변경">'+ic('pen',15)+'</button><button class="btn" data-edel="'+e.id+'" aria-label="삭제">'+ic('trash',15)+'</button></span></div>';
+}
+});
+h+='<button class="btn pri full" id="pe" style="margin-top:8px">'+ic('upload',16)+' 이 칸에 족보 PDF 올리기</button>';
+return h;
+}
+function startRun(){
+if(pbusy||!pj)return;
+var key=localStorage.getItem(aiProv()==='openai'?'studyapp.oakey':'studyapp.aikey');
+if(!key){pmsg='먼저 아래 \u201cAI 연결\u201d에서 API 키를 저장해주세요.';renderHome();return}
+if(!pj.chunks.length){pmsg='글자가 있는 쪽이 없어서 정리할 내용이 없어요. 스캔한 PDF는 아직 지원하지 않아요.';renderHome();return}
+if(pj.mode==='exam')return runExam();
+pbusy=true;pstop=false;pj.stage='run';pj.error='';pmsg='';
+acquireWake();renderHome();
+function step(){
+if(pstop){return Promise.resolve('stop')}
+if(pj.done>=pj.chunks.length)return Promise.resolve('end');
+var i=pj.done,ch=pj.chunks[i];
+setProg('AI 정리 중 '+(i+1)+' / '+pj.chunks.length,i/pj.chunks.length);
+return aiJson(chunkPrompt(pj,ch)).then(function(j){
+pj.results.push(cleanRes(j));pj.done++;
+return idbSet('job',pj).catch(function(){});
+}).then(step);
+}
+step().then(function(how){
+releaseWake();
+if(how==='stop'){pbusy=false;pj.stage='ready';pmsg='멈췄어요. 이어서 하려면 다시 시작을 누르세요.';return idbSet('job',pj).catch(function(){}).then(renderHome)}
+return finishJob().then(function(){pbusy=false;renderHome()});
+}).catch(function(er){
+releaseWake();pbusy=false;pj.stage='ready';pj.error=aiErr(er);pmsg=pj.error+' (이어서 시작을 누르면 멈춘 곳부터 계속해요)';
+return idbSet('job',pj).catch(function(){}).then(renderHome);
+});
+}
+function lectureFromJob(job){
+var secs=[],idx={};
+job.results.forEach(function(r){
+r.sections.forEach(function(s){
+var key=gnorm(s.h),si=idx[key];
+if(si===undefined){si=secs.length;idx[key]=si;secs.push({h:s.h,items:[],photos:[]})}
+s.items.forEach(function(it){secs[si].items.push({id:job.lid+'-'+si+'-'+secs[si].items.length,t:it.t,src:it.src||''})});
+});
+});
+var pageSec={};
+secs.forEach(function(sec,si){sec.items.forEach(function(it){var n=parseInt(it.src,10);if(n&&!(n in pageSec))pageSec[n]=si})});
+var pnums=Object.keys(pageSec).map(Number);
+job.pages.forEach(function(pg){
+if(!pg.imgs.length||!secs.length)return;
+var si=pageSec[pg.n];
+if(si===undefined){
+var best=null;
+pnums.forEach(function(q){if(best===null||Math.abs(q-pg.n)<Math.abs(best-pg.n))best=q});
+si=best===null?0:pageSec[best];
+}
+pg.imgs.forEach(function(ix){secs[si].photos.push({img:job.images[ix],ans:'사진',feat:[],src:String(pg.n),_p:pg.n})});
+});
+secs.forEach(function(sec){sec.photos.sort(function(a,b){return a._p-b._p});sec.photos.forEach(function(p){delete p._p})});
+return {id:job.lid,subject:job.subject,title:job.name,prof:job.prof||'',sections:secs};
+}
+function finishJob(){
+var job=pj,lec=lectureFromJob(job);
+D.lectures=mergeBy(D.lectures,[lec]);
+var qs=[];
+job.results.forEach(function(r){r.questions.forEach(function(q){qs.push({id:job.lid+'-q'+(qs.length+1),lec:job.lid,subject:job.subject,q:q.q,o:q.o,a:q.a,e:q.e+(q.src?' (슬라이드 '+q.src+')':''),src:'gen'})})});
+var cs=[];
+job.results.forEach(function(r){(r.cloze||[]).forEach(function(c){cs.push({id:job.lid+'-c'+(cs.length+1),lec:job.lid,subject:job.subject,type:'cloze',q:c.t,e:c.src?'슬라이드 '+c.src:'',src:'gen'})})});
+D.questions=mergeBy(D.questions,qs.concat(cs));
+var have={};
+(D.glossary||[]).forEach(function(g){have[gnorm(g.t)]=1;(g.a||[]).forEach(function(a){have[gnorm(a)]=1})});
+var ng=[];
+job.results.forEach(function(r){r.glossary.forEach(function(g){var k=gnorm(g.t);if(!k||have[k])return;have[k]=1;ng.push({id:k,t:g.t,k:g.k,d:g.d,a:g.a,ai:true})})});
+D.glossary=mergeBy(D.glossary||[],ng);
+buildIndex();
+if(subs().indexOf(job.subject)<0)st.extra=(st.extra||[]).concat([job.subject]);
+if(job.week)st.lw[job.lid]=job.week;
+st.lec[job.subject]=job.lid;
+var ns=0;lec.sections.forEach(function(s){ns+=s.items.length});
+pdone={lid:job.lid,title:job.name,sentences:ns,questions:qs.length,cloze:cs.length,terms:ng.length,photos:lec.sections.reduce(function(a,s){return a+s.photos.length},0)};
+pj=null;procOpen=true;pmsg='';pfile=null;
+save();
+return idbSet('pack',D).then(function(){return idbSet('job',null)}).catch(function(){pmsg='정리는 끝났지만 이 기기에 저장하지 못했어요. 앱을 닫으면 사라질 수 있어요.'});
+}
+function discardJob(){
+if(pbusy)return;
+pj=null;pfile=null;pmsg='';procOpen=false;
+idbSet('job',null).catch(function(){});
+renderHome();
+}
+function procHTML(){
+var h='<div class="lbl">PDF 처리</div>';
+if(!curSub()&&!pj&&!pdone)return h+'<div class="note">먼저 위에서 과목을 추가하세요.</div>';
+if(pdone&&pdone.exam){
+return h+'<div class="pn"><b style="font-weight:500">족보 정리를 마쳤어요</b><div class="note" style="margin:4px 0 8px">'+esc(pdone.title)+' · 문제 '+pdone.questions+'개(범위 안 '+pdone.inScope+' · 범위 밖 '+pdone.out+') · 밑줄 친 문장 '+pdone.underlined+'개 · 사진 '+pdone.photos+'개</div><div style="display:flex;gap:6px"><button class="btn pri" id="pgorev">복습 열기</button><button class="btn" id="pdone">닫기</button></div></div>';
+}
+if(pdone){
+return h+'<div class="pn"><b style="font-weight:500">정리를 마쳤어요</b><div class="note" style="margin:4px 0 8px">'+esc(pdone.title)+' · 문장 '+pdone.sentences+'개 · 문제 '+pdone.questions+'개 · 빈칸 '+pdone.cloze+'개 · 새 용어 '+pdone.terms+'개 · 사진 '+pdone.photos+'개</div><div style="display:flex;gap:6px"><button class="btn pri" data-popen="'+pdone.lid+'">정리본 열기</button><button class="btn" id="pdone">닫기</button></div></div>';
+}
+if(!procOpen&&!pj)return h+'<button class="btn pri full" id="pp">'+ic('upload',16)+' PDF를 올려서 정리하기</button>';
+h+='<div class="pn">';
+if(pj){
+var textPages=0,hl=0,imgs=pj.images.length;
+pj.pages.forEach(function(p){if((p.text||'').trim().length>=12)textPages++;hl+=p.hl||0});
+h+='<b style="font-weight:500">'+esc(pj.name)+'</b><div class="note" style="margin:4px 0 8px">'+pj.pages.length+'쪽 · 글자 있는 쪽 '+textPages+(pj.mode==='exam'?'':' · 하이라이트 단어 '+hl)+' · 사진 '+imgs+'개<br>'+(pj.mode==='exam'?'문제 읽기 '+pj.chunks.length+'번 + 범위 연결 몇 번':'AI 호출 '+pj.chunks.length+'번')+' 예상'+(pj.done?' · 지금까지 '+pj.done+'번 끝남':'')+'</div>';
+if(pbusy){
+h+='<div class="bar"><i id="pgb" style="width:'+(pj.chunks.length?Math.round(pj.done/pj.chunks.length*100):0)+'%"></i></div><div class="note" id="pg">'+esc(pmsg||'AI 정리 중…')+'</div><div class="note" style="margin:6px 0 8px">처리하는 동안 화면을 켜두고 앱을 떠나지 마세요.</div><button class="btn" id="pstop">멈추기</button>';
+}else{
+if(pmsg)h+='<div class="err" style="margin:0 0 8px">'+esc(pmsg)+'</div>';
+h+='<div style="display:flex;gap:6px"><button class="btn pri" id="pgo" style="flex:1">'+(pj.done?'이어서 시작':'AI로 정리 시작')+'</button><button class="btn" id="pcx">버리기</button></div><div class="note" style="margin-top:8px">AI에게 슬라이드 글자가 전송되고, 호출한 만큼 요금이 나가요. 시간은 몇 분 걸려요.</div>';
+}
+return h+'</div>';
+}
+var subOpts=subs().map(function(x){return '<option value="'+esc(x)+'"'+(x===(pform.subject||curSub())?' selected':'')+'>'+esc(x)+'</option>'}).join('');
+var wkOpts='<option value="0">미지정</option>';
+for(var i=1;i<=15;i++)wkOpts+='<option value="'+i+'"'+(String(i)===String(pform.week)?' selected':'')+'>'+i+'주차</option>';
+h+='<div style="display:flex;gap:6px;align-items:center;margin:0 0 8px"><button class="btn" id="pf">'+ic('file',16)+' PDF 고르기</button><span class="note" style="min-width:0;overflow-wrap:anywhere">'+(pfile?esc(pfile.name):'파일 앱에서 고르세요')+'</span></div>';
+if(pmode==='exam'){
+h+='<div class="note" style="margin:0 0 4px">족보 이름 · '+esc(titleOf('e',pslot))+'</div><input id="pn" type="text" value="'+esc(pform.name)+'" style="width:100%;margin:0 0 8px">';
+}else{
+h+='<div class="note" style="margin:0 0 4px">강의 이름</div><input id="pn" type="text" value="'+esc(pform.name)+'" style="width:100%;margin:0 0 8px"><div class="note" style="margin:0 0 4px">교수님 (선택)</div><input id="pr" type="text" value="'+esc(pform.prof)+'" style="width:100%;margin:0 0 8px"><div style="display:flex;gap:8px;margin:0 0 8px"><div style="flex:1"><div class="note" style="margin:0 0 4px">과목</div><select id="ps" style="width:100%">'+subOpts+'</select></div><div style="flex:1"><div class="note" style="margin:0 0 4px">주차</div><select id="pw" style="width:100%">'+wkOpts+'</select></div></div>';
+}
+if(pbusy)h+='<div class="bar"><i id="pgb" style="width:0%"></i></div><div class="note" id="pg">'+esc(pmsg||'읽는 중…')+'</div>';
+else{
+if(pmsg)h+='<div class="err" style="margin:0 0 8px">'+esc(pmsg)+'</div>';
+h+='<div style="display:flex;gap:6px"><button class="btn pri" id="pread" style="flex:1">PDF 읽기</button><button class="btn" id="pcx">닫기</button></div><div class="note" style="margin-top:8px">먼저 PDF에서 글자, 하이라이트, 사진을 읽어요. 필기는 쓰지 않고 하이라이트는 중요 내용으로 반영해요.</div>';
+}
+return h+'</div>';
+}
+$('fp').addEventListener('change',function(e){
+var f=e.target.files&&e.target.files[0];
+if(!f)return;
+pfile=f;
+if(!pform.name)pform.name=f.name.replace(/\.pdf$/i,'');
+pmsg='';
+renderHome();
+e.target.value='';
+});
 var bkMsg='',bkPend=null;
-function freshState(){return {ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[]}}
+function freshState(){return {ts:0,extra:[],cur:0,marks:{},srs:{},asg:{},pend:{},lec:{},lw:{},names:{},qlec:{},qscope:'all',terms:{},miss:[],sp:{}}}
 function bkSummary(s){
 var m=0,mm=0;
 for(var k in (s.marks||{})){(s.marks[k]||[]).forEach(function(x){if(x[2]==='mm')mm++;else m++})}
@@ -835,7 +1509,7 @@ bkMsg='백업 파일을 내려받았어요. ('+bkSummary(st)+')';
 }catch(e){bkMsg='내보내지 못했어요.'}
 return Promise.resolve();
 }
-$('fb').addEventListener('change',function(e){
+$('fbk').addEventListener('change',function(e){
 var f=e.target.files&&e.target.files[0];
 if(!f)return;
 var r=new FileReader();
