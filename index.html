@@ -110,7 +110,7 @@ textarea{font:inherit;font-size:16px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v2.8</span></header>
+<header><span id="ttl"></span><span class="ver">v2.9</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -369,7 +369,7 @@ return Promise.resolve();
 }
 function boot(){
 idbGet('pack').then(function(p){if(p){D=norm(p);buildIndex()}}).catch(function(){}).then(function(){return idbGet('job').then(function(j){if(j&&j.pages&&j.stage!=='done'){pj=j;if(pj.stage==='run')pj.stage='ready';procOpen=true}}).catch(function(){})}).then(function(){
-migrate();renderHome();show(0);
+migrate();fixExamOpts();renderHome();show(0);
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(function(){});
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){});
 });
@@ -1052,9 +1052,11 @@ return;
 }
 var q=QS[qi],lec=lecById(qLec(q));
 var tag=q.src==='quiz'?' · 퀴즈 오답':(q.exam?' · '+titleOf('e',q.exam):'');
-var h='<div class="note" style="margin:4px 0 6px">남은 카드 '+(QS.length-qi)+' · '+(lec?esc(lname(lec)):'연결 안 됨')+tag+'</div><div class="bar"><i style="width:'+Math.round(qi/QS.length*100)+'%"></i></div>';
+var h='<div class="note" style="margin:4px 0 6px">남은 카드 '+(QS.length-qi)+' · '+(lec?esc(lname(lec)):'연결 안 됨')+tag+'<button class="spe" id="qedit" aria-label="문제 고치기" style="float:right;margin-top:-3px">'+ic('pen',15)+'</button></div><div class="bar"><i style="width:'+Math.round(qi/QS.length*100)+'%"></i></div>';
 if(q.img)h+='<img src="'+q.img+'" alt="" style="width:100%;max-height:240px;object-fit:contain;background:var(--s1);border-radius:8px;margin:0 0 10px;display:block">';
-if(q.type==='short'){
+if(qEd&&qEd.id===q.id){
+h+=qeHTML(q);
+}else if(q.type==='short'){
 h+='<div style="font-size:16px;line-height:1.7;margin:0 0 12px">'+esc(q.q)+'</div><button class="btn full" id="rv">정답 보기</button>';
 }else if(q.type==='cloze'){
 h+='<div id="clz" style="font-size:16px;line-height:1.8;margin:0 0 12px">'+esc(q.q).replace(/\{\{c\d+::(.*?)\}\}/g,'<span class="clz">[ \u00b7\u00b7\u00b7 ]</span>')+'</div><button class="btn full" id="rv">정답 보기</button>';
@@ -1073,8 +1075,17 @@ st.qlec[q.id]=e.target.value==='-'?'':e.target.value;save();
 var m=$('mvm');if(m)m.textContent='옮겼어요. 다음 복습부터 새 범위로 나와요.';
 }
 });
+$('p2').addEventListener('input',function(e){
+if(e.target.id==='qeo'){var sel=$('qea');if(sel){var cur=+sel.value;sel.innerHTML=qeSelHTML(qeOpts(e.target.value),cur>=0?cur:-1)}}
+});
 $('p2').addEventListener('click',function(e){
 var t=e.target.closest('button');if(!t)return;
+if(t.id==='qedit'){var q0=QS[qi];if(q0){qEd={id:q0.id,del:false};drawQuiz()}return}
+if(t.id==='qecancel'){qEd=null;drawQuiz();return}
+if(t.id==='qesave'){qeSave();return}
+if(t.id==='qedel'){if(qEd){qEd.del=true;drawQuiz()}return}
+if(t.id==='qedelno'){if(qEd){qEd.del=false;drawQuiz()}return}
+if(t.id==='qedelok'){qeDelete();return}
 if(t.dataset.qk){st.qkind=t.dataset.qk;save();startQuiz(false);return}
 if(t.id==='qa'){startQuiz(true);return}
 if(t.id==='qasv'){var qq=QS[qi];st.qa[qq.id]=+t.dataset.k;save();t.textContent='저장했어요. 다음부터 이 선지가 정답으로 나와요.';t.style.pointerEvents='none';return}
@@ -1733,6 +1744,7 @@ return rec;
 });
 D.exams=(D.exams||[]).filter(function(e){return e.id!==job.eid}).concat([{id:job.eid,subject:job.subject,slot:job.slot,title:job.name,pdf:true}]);
 D.questions=mergeBy(D.questions,recs);
+fixExamOpts();
 return smartLink(job.subject,function(i,n){setProg('강의와 연결하는 중 '+(i+1)+' / '+n,i/n)}).then(function(r){
 var inS=recs.filter(function(x){return x.lec}).length;
 pdone={exam:true,title:job.name,questions:recs.length,inScope:inS,out:recs.length-inS,underlined:r.under,photos:recs.filter(function(x){return x.img}).length};
@@ -2156,6 +2168,87 @@ r.onerror=function(){trMsg='파일을 열지 못했어요.';renderHome()};
 r.onloadend=function(){e.target.value=''};
 r.readAsArrayBuffer(f);
 });
+var qEd=null;
+function qeOpts(text){return String(text||'').split('\n').map(function(x){return x.trim()}).filter(Boolean)}
+function qeSelHTML(opts,a){
+var h='<option value="-1">모름</option>';
+opts.forEach(function(o,i){h+='<option value="'+i+'"'+(i===a?' selected':'')+'>'+(i+1)+'번 '+esc(o.slice(0,24))+'</option>'});
+return h;
+}
+function qeHTML(q){
+var isC=q.type==='cloze',opts=q.o||[],a=(typeof q.a==='number'&&q.a>=0)?q.a:(Number.isInteger(st.qa[q.id])?st.qa[q.id]:-1);
+var ex=(q.e&&!/정답 정보가 없어요|근거가 없어요/.test(q.e))?q.e:'';
+var h='<div class="edt"><div class="note" style="margin:0 0 4px">문제 고치기</div><textarea id="qeq" rows="4">'+esc(q.q)+'</textarea>';
+if(!isC)h+='<div class="note" style="margin:8px 0 4px">선지 (한 줄에 하나씩 적어요. 비워두면 주관식)</div><textarea id="qeo" rows="5" placeholder="예)\n상완골\n요골\n척골">'+esc(opts.join('\n'))+'</textarea><div class="note" style="margin:8px 0 4px">정답</div><select id="qea" style="width:100%;font-size:16px">'+qeSelHTML(opts,a)+'</select><div class="note" style="margin:8px 0 4px">주관식 정답이나 해설 (선택)</div><textarea id="qee" rows="2">'+esc(ex)+'</textarea>';
+if(qEd&&qEd.del)h+='<div class="note" style="margin:10px 0 0;color:var(--tx)">이 문제를 지울까요? 푼 기록도 같이 지워져요.</div><div class="edb"><button class="btn pri" id="qedelok">지우기</button><button class="btn" id="qedelno">취소</button></div>';
+else h+='<div class="edb"><button class="btn pri" id="qesave">저장</button><button class="btn" id="qecancel">취소</button><button class="btn" id="qedel">이 문제 지우기</button></div>';
+return h+'</div>';
+}
+function qeSave(){
+var q=QS[qi];
+if(!q)return;
+var qt=String($('qeq').value||'').replace(/\s+/g,' ').trim();
+if(!qt){$('qeq').placeholder='문제 글을 비울 수는 없어요.';$('qeq').focus();return}
+q.q=qt;
+if(q.type!=='cloze'){
+var lines=qeOpts($('qeo').value),ex=String($('qee').value||'').trim();
+if(lines.length>=2){
+q.type='mcq';q.o=lines;
+var a=+$('qea').value;
+q.a=(a>=0&&a<lines.length)?a:-1;
+q.e=ex;
+if(q.a>=0)delete st.qa[q.id];
+}else{
+q.type='short';delete q.o;delete q.a;
+q.e=ex||'정답 정보가 없어요.';
+}
+q.fx=1;delete q.aiAns;
+}
+qEd=null;save();idbSet('pack',D).catch(function(){});
+drawQuiz();
+}
+function qeDelete(){
+var q=QS[qi];
+if(!q)return;
+D.questions=D.questions.filter(function(x){return x.id!==q.id});
+delete st.srs[q.id];delete st.qa[q.id];delete st.qlec[q.id];
+QS.splice(qi,1);
+qEd=null;save();idbSet('pack',D).catch(function(){});
+drawQuiz();
+}
+function splitInline(text){
+var s=String(text),c=s.match(/[\u2460-\u2473]/g);
+if(c&&c.length>=3){
+var ci=s.search(/[\u2460-\u2473]/),parts=s.slice(ci).split(/(?=[\u2460-\u2473])/).map(function(x){return x.replace(OPTRE,'').trim()}).filter(Boolean);
+if(parts.length>=3&&s.slice(0,ci).trim().length>=3)return {stem:s.slice(0,ci).trim(),opts:parts};
+}
+var re=/(?:^|\s)([1-9])\s*\)\s*/g,m,mk=[];
+while((m=re.exec(s))){mk.push({n:+m[1],i:m.index,len:m[0].length})}
+var st0=-1;
+for(var k=0;k<mk.length;k++){if(mk[k].n===1){st0=k;break}}
+if(st0<0)return null;
+var seq=[mk[st0]];
+for(var j=st0+1;j<mk.length;j++){if(mk[j].n===seq.length+1)seq.push(mk[j])}
+if(seq.length<3)return null;
+var stem=s.slice(0,seq[0].i).trim();
+if(stem.length<5||!/(다음|옳|틀|고르|것은|무엇|해당|알맞|\?)/.test(stem))return null;
+var opts=[];
+for(var z=0;z<seq.length;z++){var from=seq[z].i+seq[z].len,to=z+1<seq.length?seq[z+1].i:s.length;var o=s.slice(from,to).trim();if(o)opts.push(o)}
+return opts.length>=3?{stem:stem,opts:opts}:null;
+}
+function fixExamOpts(){
+var ch=false;
+D.questions.forEach(function(q){
+if(q.src!=='exam'||q.type!=='short'||q.fx)return;
+var r=splitInline(q.q);
+if(!r)return;
+q.type='mcq';q.q=r.stem;q.o=r.opts;q.a=-1;q.fx=1;
+if(/정답 정보가 없어요|근거가 없어요/.test(q.e||''))q.e='';
+ch=true;
+});
+if(ch)idbSet('pack',D).catch(function(){});
+return ch;
+}
 var edId=null,edText='',edDel=false,edH=null,edHLec=null,edHText='';
 function edHTML(it){
 return '<div class="edt"><textarea id="edt" rows="4">'+esc(edText)+'</textarea>'+(edDel?'<div class="note" style="margin:8px 0 0;color:var(--tx)">이 문장을 지울까요? 이 문장의 하이라이트와 메모도 같이 지워져요.</div><div class="edb"><button class="btn pri" id="eddelok">지우기</button><button class="btn" id="eddelno">취소</button></div>':'<div class="edb"><button class="btn pri" id="edsave">저장</button><button class="btn" id="edcancel">취소</button><button class="btn" id="edadd">아래에 문장 추가</button><button class="btn" id="eddel">지우기</button></div><div class="note" style="margin-top:6px">하이라이트와 중요 표시는 바뀐 글에도 같은 부분이 있으면 그대로 남고, 메모는 항상 남아요.</div>')+'</div>';
