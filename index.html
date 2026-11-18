@@ -84,7 +84,10 @@ h3{font-size:16px;font-weight:500;margin:18px 0 4px}
 .bar{height:4px;background:var(--s1);border-radius:2px;margin:0 0 14px}
 .bar i{display:block;height:4px;background:var(--acc);border-radius:2px}
 .ic{vertical-align:-3px}
-textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px;resize:vertical;width:100%;line-height:1.5}
+textarea{font:inherit;font-size:16px;color:var(--tx);background:var(--bg);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px;resize:vertical;width:100%;line-height:1.5}
+.spe{background:none;border:none;color:var(--tx2);padding:2px 6px;margin-left:2px;cursor:pointer;vertical-align:middle;opacity:.7}
+.edt{margin:4px 0 6px}
+.edb{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .spt{background:none;border:.5px solid var(--bd2);border-radius:10px;padding:1px 8px;font:inherit;font-size:12px;color:var(--tx2);margin-left:8px;cursor:pointer}
 .spt.em{color:var(--acc);border-color:var(--accbd)}
 .spk{display:none;margin:4px 0 2px;padding:6px 10px;border-left:2px solid var(--bd2);background:var(--s1);border-radius:6px;font-size:13px;line-height:1.65;color:var(--tx)}
@@ -107,7 +110,7 @@ textarea{font:inherit;font-size:14px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v2.7</span></header>
+<header><span id="ttl"></span><span class="ver">v2.8</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -670,10 +673,11 @@ h+='<div style="display:flex;gap:8px;align-items:center;margin:0 0 6px"><span cl
 for(var i=1;i<=15;i++)h+='<option value="'+i+'"'+(i===wk?' selected':'')+'>'+i+'주차</option>';
 h+='</select></div>';
 h+='<div id="nb"><div id="tb"></div>';
-lec.sections.forEach(function(sec){
-h+='<h3>'+esc(sec.h)+'</h3>';
+lec.sections.forEach(function(sec,si){
+if(edH===si&&edHLec===lec.id)h+='<div class="edt"><input id="edh" type="text" value="'+esc(edHText)+'" style="width:100%;font-size:16px"><div class="edb"><button class="btn pri" id="edhsave">저장</button><button class="btn" id="edhcancel">취소</button></div></div>';
+else h+='<h3>'+esc(sec.h)+' <button class="spe" data-edith="'+si+'" aria-label="소제목 고치기">'+ic('pen',14)+'</button></h3>';
 sec.items.forEach(function(it){
-h+='<div class="sn" data-sid="'+it.id+'"><p class="txt'+(it.j&&it.j.length?' jb':'')+'">'+sentHTML(it.id,it.t)+'</p>'+(it.x?'<div class="xn">※ '+esc(it.x)+'</div>':'')+(it.src?'<span class="src">슬라이드 '+esc(it.src)+'</span>':'')+spBtn(it)+'<div class="spk">'+spBody(it)+'</div><div class="memos">'+memosHTML(it.id)+'</div></div>';
+h+='<div class="sn" data-sid="'+it.id+'">'+(edId===it.id?edHTML(it):'<p class="txt'+(it.j&&it.j.length?' jb':'')+'">'+sentHTML(it.id,it.t)+'</p>')+(it.x?'<div class="xn">※ '+esc(it.x)+'</div>':'')+(it.src?'<span class="src">슬라이드 '+esc(it.src)+'</span>':'')+spBtn(it)+(edId===it.id?'':'<button class="spe" data-edit="'+it.id+'" aria-label="문장 고치기">'+ic('pen',14)+'</button>')+'<div class="spk">'+spBody(it)+'</div><div class="memos">'+memosHTML(it.id)+'</div></div>';
 });
 (sec.photos||[]).forEach(function(ph){
 h+='<div class="ph"><img src="'+ph.img+'" alt="'+esc(ph.ans)+'"><div class="cap"><b style="font-weight:500" class="'+(ph.j&&ph.j.length?'jb':'')+'">'+esc(ph.ans)+'</b>'+(ph.src&&ph.src!=='족보'?' <span class="src">슬라이드 '+esc(ph.src)+'</span>':'')+'<ul>'+ph.feat.map(function(f){return '<li>'+f+'</li>'}).join('')+'</ul></div></div>';
@@ -973,6 +977,8 @@ $('p1').addEventListener('click',function(e){
 if(e.target.closest('#jbf')){jbOnly=!jbOnly;applyJb();return}
 if(e.target.closest('#spf')){spAll=!spAll;applySp();return}
 if(e.target.closest('#qzb')){qzStart(curLecId);return}
+var eb=e.target.closest('button');
+if(eb&&edClick(eb))return;
 var spb=e.target.closest('[data-spt]');
 if(spb){var sn0=spb.closest('.sn');if(sn0)sn0.classList.toggle('so');return}
 var b=e.target.closest('#ma');
@@ -2150,6 +2156,94 @@ r.onerror=function(){trMsg='파일을 열지 못했어요.';renderHome()};
 r.onloadend=function(){e.target.value=''};
 r.readAsArrayBuffer(f);
 });
+var edId=null,edText='',edDel=false,edH=null,edHLec=null,edHText='';
+function edHTML(it){
+return '<div class="edt"><textarea id="edt" rows="4">'+esc(edText)+'</textarea>'+(edDel?'<div class="note" style="margin:8px 0 0;color:var(--tx)">이 문장을 지울까요? 이 문장의 하이라이트와 메모도 같이 지워져요.</div><div class="edb"><button class="btn pri" id="eddelok">지우기</button><button class="btn" id="eddelno">취소</button></div>':'<div class="edb"><button class="btn pri" id="edsave">저장</button><button class="btn" id="edcancel">취소</button><button class="btn" id="edadd">아래에 문장 추가</button><button class="btn" id="eddel">지우기</button></div><div class="note" style="margin-top:6px">하이라이트와 중요 표시는 바뀐 글에도 같은 부분이 있으면 그대로 남고, 메모는 항상 남아요.</div>')+'</div>';
+}
+function edFocus(){setTimeout(function(){var x=$('edt')||$('edh');if(x){x.focus();try{x.setSelectionRange(x.value.length,x.value.length)}catch(e){}if(x.scrollIntoView)x.scrollIntoView({block:'center'})}},30)}
+function edFind(id){
+var l=lecById(curLecId);
+if(!l)return null;
+for(var i=0;i<l.sections.length;i++){var its=l.sections[i].items;for(var j=0;j<its.length;j++)if(its[j].id===id)return {lec:l,sec:l.sections[i],si:i,idx:j,it:its[j]}}
+return null;
+}
+function edPersist(){save();idbSet('pack',D).catch(function(){})}
+function edRemap(it,nt){
+var old=it.t,out=[];
+(st.marks[it.id]||[]).forEach(function(m){
+var seg=old.slice(m[0],m[1]),pos=-1;
+if(seg){
+var from=0,best=-1,bd=1e9,p2;
+while((p2=nt.indexOf(seg,from))>=0){var d=Math.abs(p2-m[0]);if(d<bd){bd=d;best=p2}from=p2+1}
+pos=best;
+}
+if(pos>=0){var m2=m.slice();m2[0]=pos;m2[1]=pos+seg.length;out.push(m2)}
+else if(m[2]==='mm'){
+var s2=Math.min(m[0],Math.max(0,nt.length-1)),e2=Math.min(Math.max(m[1],s2+1),nt.length);
+var m3=m.slice();m3[0]=s2;m3[1]=e2;out.push(m3);
+}
+});
+if(out.length)st.marks[it.id]=out;else delete st.marks[it.id];
+}
+function edApply(){
+var f=edFind(edId);
+if(!f)return false;
+var nt=String(edText||'').replace(/\s+/g,' ').trim();
+if(!nt)return false;
+if(nt!==f.it.t){edRemap(f.it,nt);f.it.t=nt;f.it.ed=1}
+delete f.it.nw;
+return true;
+}
+function edRemove(f){
+f.sec.items.splice(f.idx,1);
+delete st.marks[f.it.id];
+if(!f.sec.items.length&&!(f.sec.photos||[]).length)f.lec.sections.splice(f.si,1);
+}
+function edClick(b){
+if(b.dataset.edit){
+var f=edFind(b.dataset.edit);
+if(!f)return true;
+edId=f.it.id;edText=f.it.t;edDel=false;renderNotes();edFocus();return true;
+}
+if(b.id==='edsave'){
+if(!edApply()){var f0=edFind(edId);if(f0&&f0.it.nw){edRemove(f0);edId=null;edPersist();renderNotes();return true}var tx=$('edt');if(tx){tx.placeholder='문장을 비울 수는 없어요. 지우려면 \u201c지우기\u201d를 누르세요.';tx.focus()}return true}
+edId=null;edPersist();renderNotes();return true;
+}
+if(b.id==='edcancel'){
+var f1=edFind(edId);
+if(f1&&f1.it.nw){edRemove(f1);edPersist()}
+edId=null;renderNotes();return true;
+}
+if(b.id==='eddel'){edDel=true;renderNotes();return true}
+if(b.id==='eddelno'){edDel=false;renderNotes();edFocus();return true}
+if(b.id==='eddelok'){
+var f2=edFind(edId);
+if(f2)edRemove(f2);
+edId=null;edDel=false;edPersist();renderNotes();return true;
+}
+if(b.id==='edadd'){
+var f3=edFind(edId);
+if(!f3)return true;
+if(String(edText||'').trim())edApply();
+else if(f3.it.nw){return true}
+f3=edFind(edId);
+var nit={id:f3.lec.id+'-m'+Date.now().toString(36),t:'',src:'',nw:1};
+f3.sec.items.splice(f3.idx+1,0,nit);
+edId=nit.id;edText='';edDel=false;edPersist();renderNotes();edFocus();return true;
+}
+if(b.dataset.edith!==undefined){
+var l=lecById(curLecId),si=+b.dataset.edith;
+if(l&&l.sections[si]){edH=si;edHLec=l.id;edHText=l.sections[si].h;renderNotes();edFocus()}
+return true;
+}
+if(b.id==='edhsave'){
+var l2=lecById(edHLec);
+if(l2&&l2.sections[edH]&&edHText.trim())l2.sections[edH].h=edHText.trim();
+edH=null;edHLec=null;edPersist();renderNotes();return true;
+}
+if(b.id==='edhcancel'){edH=null;edHLec=null;renderNotes();return true}
+return false;
+}
 var qz=null;
 var QGSYS='너는 의대 수업 직후 복습 퀴즈를 만드는 조교야. 입력은 방금 끝난 강의의 정리 문장(id 포함)이야. \u2605 표시는 학생이나 교수님이 강조한 내용이야. 규칙: (1) 정확히 5문제를 만들어. (2) 보기 없이 직접 떠올려 답하는 주관식이고, 한두 문장이나 짧은 구절로 답할 수 있어야 해. (3) 서로 다른 개념에서 골라. \u2605 내용을 우선하되 모두 \u2605일 필요는 없어. (4) 정답은 입력에 있는 내용만 근거로 써. (5) 문제 자체에 답이 들어 있으면 안 돼. (6) key에는 채점에 쓸 핵심 키워드 1~4개를 넣어. 출력은 JSON 하나만, 설명이나 코드블록 없이.';
 var QCSYS='너는 의대 수업 복습 퀴즈를 채점하는 조교야. 학생 답이 모범 답안의 핵심 내용과 같으면 맞음, 핵심이 빠졌거나 틀렸으면 틀림으로 해. 표현이 달라도 뜻이 같으면 맞음이고, 한글과 영어 표기나 약어 차이는 허용해. why에는 한국어 한 줄(40자 이내)로 이유만 써. 출력은 JSON 하나만, 설명이나 코드블록 없이: {"ok":true,"why":"이유"}';
@@ -2264,6 +2358,7 @@ save();
 if(wrong.length)idbSet('pack',D).catch(function(){});
 qz.stage='sum';qzRender();
 }
+$('p1').addEventListener('input',function(e){if(e.target.id==='edt')edText=e.target.value;if(e.target.id==='edh')edHText=e.target.value});
 $('qz').addEventListener('input',function(e){if(e.target.id==='qza'){qz.draft=e.target.value;qz.hint=''}});
 $('qz').addEventListener('click',function(e){
 var b=e.target.closest('button');
