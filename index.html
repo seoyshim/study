@@ -110,7 +110,7 @@ textarea{font:inherit;font-size:16px;color:var(--tx);background:var(--bg);border
 </head>
 <body>
 <div id="app">
-<header><span id="ttl"></span><span class="ver">v2.9</span></header>
+<header><span id="ttl"></span><span class="ver">v3.0</span></header>
 <main id="main">
 <section id="p0"></section>
 <section id="p1"></section>
@@ -801,19 +801,40 @@ if(aiProv()==='openai')return 'OpenAI로 연결하지 못했어요. 브라우저
 return '연결하지 못했어요. 인터넷 연결을 확인해주세요.';
 }
 function aiBlock(text){
-return '<div style="margin-top:10px;border-top:.5px solid var(--bd);padding-top:8px"><div class="note">AI 설명</div><div style="font-size:14px;line-height:1.7">'+esc(text).replace(/\n/g,'<br>')+'</div><div class="src" style="margin:4px 0 6px">AI가 쓴 설명이라 틀릴 수 있어요.</div><button class="btn" id="asv">용어집에 저장</button></div>';
+return '<div style="margin-top:10px;border-top:.5px solid var(--bd);padding-top:8px"><div class="note">AI 설명</div><div style="font-size:14px;line-height:1.7">'+esc(text).replace(/\n/g,'<br>')+'</div><div class="src" style="margin:4px 0 6px">AI가 쓴 설명이라 틀릴 수 있어요.</div><button class="btn pri" id="asv">정리본에 저장</button><div class="src" style="margin-top:4px">이 문장에 메모로 붙고, 다음에 찾을 때도 바로 나와요.</div></div>';
 }
-function showDict(sid,text){
+function savedHit(text){
+var k=termKey(text),u=st.terms&&st.terms[k];
+if(!u)return [];
+var lab=String(text).replace(/\s+/g,' ').trim();
+return [{t:lab.length>30?lab.slice(0,30)+'\u2026':lab,k:'',d:u.d,mine:true,ai:!!u.ai,exact:true}];
+}
+function saveNote(sid,rs,re,term,body){
+var it=sentById(sid);
+if(!it)return -1;
+var s=(typeof rs==='number'&&rs>=0)?rs:0,e=(typeof re==='number'&&re>s)?re:it.t.length;
+if(e>it.t.length)e=it.t.length;
+if(s>=e){s=0;e=it.t.length}
+var lab=String(term).replace(/\s+/g,' ').trim();
+var text=(lab.length<=40?'['+lab+'] ':'')+body;
+var ms=st.marks[sid]||(st.marks[sid]=[]);
+for(var i=0;i<ms.length;i++)if(ms[i][2]==='mm'&&ms[i][3]===text){openMn[sid+'#'+i]=true;return i}
+ms.push([s,e,'mm',text]);
+var k=ms.length-1;
+openMn[sid+'#'+k]=true;
+return k;
+}
+function showDict(sid,text,rs,re){
 document.querySelectorAll('#nb .dc').forEach(function(x){x.remove()});
 var sn=document.querySelector('.sn[data-sid="'+sid+'"]');
 if(!sn)return;
-var hits=findTerms(text).slice(0,8),h='<div class="dc" data-text="'+esc(text)+'">';
+var sh=savedHit(text),fh=findTerms(text).filter(function(g){return !(sh.length&&gnorm(g.t)===termKey(text))}),hits=sh.concat(fh).slice(0,8),h='<div class="dc" data-text="'+esc(text)+'" data-rs="'+(rs===undefined?'':rs)+'" data-re="'+(re===undefined?'':re)+'">';
 h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><span class="note">\u201c'+esc(text.length>40?text.slice(0,40)+'\u2026':text)+'\u201d</span><button class="mi dx" aria-label="닫기" style="color:var(--tx2)">'+ic('x',16)+'</button></div>';
 if(hits.length){
 hits.forEach(function(g){h+='<div style="margin-top:8px"><b>'+esc(g.t)+'</b><span class="ko">'+esc(g.k||'')+'</span>'+(g.mine?'<span class="src"> \u00b7 '+(g.ai?'AI 설명(저장함)':'내가 적은 뜻')+'</span>':'')+'<p>'+esc(g.d).replace(/\n/g,'<br>')+'</p></div>'});
 h+='<div class="src" style="margin-top:8px">일반 의학 용어 설명이에요. 강의록 표현과 다를 수 있어요.</div><button class="btn" id="ai" style="margin-top:8px">AI로 더 자세히</button>';
 }else{
-h+='<div class="note" style="margin:8px 0 6px">용어집에 없는 말이에요.</div><button class="btn pri full" id="ai" style="margin:0 0 8px">'+ic('search',16)+' AI에게 물어보기</button><div style="display:flex;gap:6px"><input type="text" id="tk" placeholder="뜻을 직접 적기" style="flex:1"><button class="btn" id="tsv">저장</button></div><div class="err" id="te"></div><button class="btn" id="tmq" style="width:100%">추가 요청 목록에 담기</button>';
+h+='<div class="note" style="margin:8px 0 6px">용어집에 없는 말이에요.</div><button class="btn pri full" id="ai" style="margin:0 0 8px">'+ic('search',16)+' AI에게 물어보기</button><div style="display:flex;gap:6px"><input type="text" id="tk" placeholder="뜻을 직접 적기" style="flex:1;font-size:16px"><button class="btn" id="tsv">저장</button></div><div class="err" id="te"></div><button class="btn" id="tmq" style="width:100%">추가 요청 목록에 담기</button>';
 }
 h+='<div id="ar"></div></div>';
 var w=document.createElement('div');w.innerHTML=h;
@@ -846,14 +867,24 @@ return;
 if(b.id==='asv'){
 var ans=dc.getAttribute('data-ai')||'';
 if(!ans)return;
-st.terms=st.terms||{};st.terms[key]={k:'',d:ans,ai:1};save();
-showDict(sid,txt);return;
+var rs1=parseInt(dc.getAttribute('data-rs'),10),re1=parseInt(dc.getAttribute('data-re'),10);
+st.terms=st.terms||{};st.terms[key]={k:'',d:ans,ai:1};
+saveNote(sid,isNaN(rs1)?undefined:rs1,isNaN(re1)?undefined:re1,txt,ans);
+save();renderSent(sid);
+showDict(sid,txt,isNaN(rs1)?undefined:rs1,isNaN(re1)?undefined:re1);
+if($('ar'))$('ar').innerHTML='<div class="note" style="margin-top:8px;color:var(--acc)">저장했어요. 이 문장의 메모로 붙었어요.</div>';
+return;
 }
 if(b.id==='tsv'){
 var v=$('tk').value.trim();
 if(!v){$('te').textContent='뜻을 입력하세요';return}
-st.terms=st.terms||{};st.terms[key]={k:'',d:v};save();
-showDict(sid,txt);return;
+var rs2=parseInt(dc.getAttribute('data-rs'),10),re2=parseInt(dc.getAttribute('data-re'),10);
+st.terms=st.terms||{};st.terms[key]={k:'',d:v};
+saveNote(sid,isNaN(rs2)?undefined:rs2,isNaN(re2)?undefined:re2,txt,v);
+save();renderSent(sid);
+showDict(sid,txt,isNaN(rs2)?undefined:rs2,isNaN(re2)?undefined:re2);
+if($('ar'))$('ar').innerHTML='<div class="note" style="margin-top:8px;color:var(--acc)">저장했어요. 이 문장의 메모로 붙었어요.</div>';
+return;
 }
 if(b.id==='tmq'){
 st.miss=st.miss||[];
@@ -906,7 +937,7 @@ if(a==='mm'){
 $('tb').innerHTML='<input type="text" id="mt" placeholder="메모 입력"><button data-a="ms">저장</button><button data-a="mc">취소</button><div id="me" style="font-size:12px;color:var(--no);padding:2px 8px;display:none"></div>';
 posTb();$('mt').focus();return;
 }
-if(a==='q'){var tx=txt.slice(p.s,p.e);clearPend();showDict(sid,tx);return}
+if(a==='q'){var tx=txt.slice(p.s,p.e),rs0=p.s,re0=p.e;clearPend();showDict(sid,tx,rs0,re0);return}
 if(a==='mc'){tbMain();posTb();return}
 if(a==='ms'){
 var v=$('mt').value.trim();
